@@ -244,6 +244,42 @@ class CoverImageRefScanner final : public Print {
     }
   }
 };
+
+class Ao3PrefaceSniffer final : public Print {
+ public:
+  bool match = false;
+
+  size_t write(uint8_t data) override { return write(&data, 1); }
+
+  size_t write(const uint8_t* buffer, size_t size) override {
+    for (size_t i = 0; i < size && !match; ++i) {
+      consume(static_cast<char>(buffer[i]));
+      if (match) {
+        return i + 1;
+      }
+    }
+    return size;
+  }
+
+ private:
+  static constexpr const char* kWorkUrl = "archiveofourown.org/works/";
+  static constexpr const char* kPostedOriginally = "Posted originally on";
+  static constexpr const char* kArchiveHost = "archiveofourown";
+
+  std::string window;
+
+  void consume(const char c) {
+    if (window.size() >= 256) {
+      window.erase(0, 64);
+    }
+    window.push_back(c);
+
+    if (window.find(kWorkUrl) != std::string::npos ||
+        (window.find(kPostedOriginally) != std::string::npos && window.find(kArchiveHost) != std::string::npos)) {
+      match = true;
+    }
+  }
+};
 }  // namespace
 
 Epub::Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
@@ -380,6 +416,10 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
   if (collectCssFiles && !opfParser.cssFiles.empty()) {
     cssFiles = std::move(opfParser.cssFiles);
   }
+
+  bookMetadata.ao3WorkId = opfParser.ao3WorkId;
+  bookMetadata.ao3UpdateDate = opfParser.ao3UpdateDate;
+  bookMetadata.ao3IsCompleted = opfParser.ao3IsCompleted;
 
   return true;
 }
@@ -903,6 +943,43 @@ const std::string& Epub::getLanguage() const {
 
   return bookMetadataCache->coreMetadata.language;
 }
+
+bool Epub::hasAo3Info() const {
+  return bookMetadataCache && bookMetadataCache->isLoaded() && !bookMetadataCache->coreMetadata.ao3WorkId.empty();
+}
+
+const std::string& Epub::getAo3WorkId() const {
+  static std::string blank;
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return blank;
+  }
+
+  return bookMetadataCache->coreMetadata.ao3WorkId;
+}
+
+const std::string& Epub::getAo3UpdateDate() const {
+  static std::string blank;
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
+    return blank;
+  }
+
+  return bookMetadataCache->coreMetadata.ao3UpdateDate;
+}
+
+bool Epub::isAo3Completed() const {
+  return bookMetadataCache && bookMetadataCache->isLoaded() && bookMetadataCache->coreMetadata.ao3IsCompleted;
+}
+
+bool Epub::sniffNativeAo3Preface() const {
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded() || getSpineItemsCount() <= 0) {
+    return false;
+  }
+
+  Ao3PrefaceSniffer sniffer;
+  return readItemContentsToStream(getSpineItem(0).href, sniffer, 1024, true) && sniffer.match;
+}
+
+bool Epub::isAo3Work() const { return hasAo3Info() || sniffNativeAo3Preface(); }
 
 bool Epub::hasCoverImage() const {
   return bookMetadataCache && bookMetadataCache->isLoaded() && !bookMetadataCache->coreMetadata.coverItemHref.empty();

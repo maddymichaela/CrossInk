@@ -124,6 +124,12 @@ class Epub {
   const std::string& getTitle() const;
   const std::string& getAuthor() const;
   const std::string& getLanguage() const;
+  bool hasAo3Info() const;
+  const std::string& getAo3WorkId() const;
+  const std::string& getAo3UpdateDate() const;
+  bool isAo3Completed() const;
+  bool sniffNativeAo3Preface() const;
+  bool isAo3Work() const;
   // True when parsed EPUB metadata identifies a cover image. Requires load().
   bool hasCoverImage() const;
   std::string getCoverBmpPath(bool cropped = false) const;

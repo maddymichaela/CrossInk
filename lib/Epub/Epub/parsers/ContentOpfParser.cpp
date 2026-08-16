@@ -15,6 +15,7 @@ constexpr char MEDIA_TYPE_CSS[] = "text/css";
 constexpr char MEDIA_TYPE_IMAGE_PREFIX[] = "image/";
 constexpr char itemCacheFile[] = "/.items.bin";
 constexpr size_t ITEM_INDEX_ARENA_SLAB_BYTES = 4096;
+constexpr char AO3_WORK_URL_MARKER[] = "archiveofourown.org/works/";
 
 bool startsWithImageMediaType(const std::string& mediaType) {
   constexpr size_t prefixLen = sizeof(MEDIA_TYPE_IMAGE_PREFIX) - 1;
@@ -30,6 +31,30 @@ bool startsWithImageMediaType(const std::string& mediaType) {
   }
 
   return true;
+}
+
+std::string extractAo3WorkId(const std::string& text) {
+  const size_t pos = text.find(AO3_WORK_URL_MARKER);
+  if (pos == std::string::npos) {
+    return {};
+  }
+
+  std::string workId;
+  const size_t start = pos + sizeof(AO3_WORK_URL_MARKER) - 1;
+  for (size_t i = start; i < text.size(); ++i) {
+    const char c = text[i];
+    if (std::isdigit(static_cast<unsigned char>(c))) {
+      workId.push_back(c);
+    } else if (!workId.empty()) {
+      break;
+    }
+  }
+
+  return workId;
+}
+
+bool containsCompletedStatus(const std::string& text) {
+  return text.find("Completed") != std::string::npos || text.find("completed") != std::string::npos;
 }
 }  // namespace
 
@@ -136,6 +161,24 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
     return;
   }
 
+  if (self->state == IN_METADATA && strcmp(name, "dc:identifier") == 0) {
+    self->metadataTextBuffer.clear();
+    self->state = IN_DC_IDENTIFIER;
+    return;
+  }
+
+  if (self->state == IN_METADATA && strcmp(name, "dc:subject") == 0) {
+    self->metadataTextBuffer.clear();
+    self->state = IN_DC_SUBJECT;
+    return;
+  }
+
+  if (self->state == IN_METADATA && strcmp(name, "dc:source") == 0) {
+    self->metadataTextBuffer.clear();
+    self->state = IN_DC_SOURCE;
+    return;
+  }
+
   if (self->state == IN_PACKAGE && (strcmp(name, "manifest") == 0 || strcmp(name, "opf:manifest") == 0)) {
     self->state = IN_MANIFEST;
     if (!Storage.openFileForWrite("COF", self->cachePath + itemCacheFile, self->tempItemStore)) {
@@ -173,17 +216,32 @@ void XMLCALL ContentOpfParser::startElement(void* userData, const XML_Char* name
   if (self->state == IN_METADATA && (strcmp(name, "meta") == 0 || strcmp(name, "opf:meta") == 0)) {
     bool isCover = false;
     std::string coverItemId;
+    const char* nameAttr = nullptr;
+    const char* contentAttr = nullptr;
 
     for (int i = 0; atts[i]; i += 2) {
       if (strcmp(atts[i], "name") == 0 && strcmp(atts[i + 1], "cover") == 0) {
         isCover = true;
+        nameAttr = atts[i + 1];
+      } else if (strcmp(atts[i], "name") == 0) {
+        nameAttr = atts[i + 1];
       } else if (strcmp(atts[i], "content") == 0) {
         coverItemId = atts[i + 1];
+        contentAttr = atts[i + 1];
       }
     }
 
     if (isCover) {
       self->coverItemId = coverItemId;
+    }
+    if (nameAttr && contentAttr) {
+      if (strcmp(nameAttr, "calibre:timestamp") == 0) {
+        const std::string timestamp = contentAttr;
+        self->ao3UpdateDate = timestamp.size() >= 10 ? timestamp.substr(0, 10) : timestamp;
+      } else if ((strcmp(nameAttr, "fanficfare:status") == 0 || strcmp(nameAttr, "fanfics:status") == 0) &&
+                 containsCompletedStatus(contentAttr)) {
+        self->ao3IsCompleted = true;
+      }
     }
     return;
   }
@@ -359,6 +417,11 @@ void XMLCALL ContentOpfParser::characterData(void* userData, const XML_Char* s, 
     self->language.append(s, len);
     return;
   }
+
+  if (self->state == IN_DC_IDENTIFIER || self->state == IN_DC_SUBJECT || self->state == IN_DC_SOURCE) {
+    self->metadataTextBuffer.append(s, len);
+    return;
+  }
 }
 
 void XMLCALL ContentOpfParser::endElement(void* userData, const XML_Char* name) {
@@ -394,6 +457,35 @@ void XMLCALL ContentOpfParser::endElement(void* userData, const XML_Char* name) 
   }
 
   if (self->state == IN_BOOK_LANGUAGE && strcmp(name, "dc:language") == 0) {
+    self->state = IN_METADATA;
+    return;
+  }
+
+  if (self->state == IN_DC_IDENTIFIER && strcmp(name, "dc:identifier") == 0) {
+    const std::string workId = extractAo3WorkId(self->metadataTextBuffer);
+    if (!workId.empty()) {
+      self->ao3WorkId = workId;
+    }
+    self->metadataTextBuffer.clear();
+    self->state = IN_METADATA;
+    return;
+  }
+
+  if (self->state == IN_DC_SUBJECT && strcmp(name, "dc:subject") == 0) {
+    if (containsCompletedStatus(self->metadataTextBuffer)) {
+      self->ao3IsCompleted = true;
+    }
+    self->metadataTextBuffer.clear();
+    self->state = IN_METADATA;
+    return;
+  }
+
+  if (self->state == IN_DC_SOURCE && strcmp(name, "dc:source") == 0) {
+    const std::string workId = extractAo3WorkId(self->metadataTextBuffer);
+    if (!workId.empty()) {
+      self->ao3WorkId = workId;
+    }
+    self->metadataTextBuffer.clear();
     self->state = IN_METADATA;
     return;
   }
