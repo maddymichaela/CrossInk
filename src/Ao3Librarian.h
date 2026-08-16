@@ -8,6 +8,12 @@
 
 class Epub;
 
+struct Ao3LibrarySummary {
+  uint16_t total = 0;
+  uint16_t waiting = 0;
+  uint16_t updatesAvailable = 0;
+};
+
 /**
  * @brief Utility class to scrape AO3 metadata from an EPUB file.
  * Handles FanFicFare-exported AO3 EPUBs and AO3-download (Calibre-style) EPUBs.
@@ -45,6 +51,12 @@ class Ao3Librarian {
    * @brief Quick check to see if any AO3 library info exists.
    */
   static bool hasAnyAo3Fics();
+
+  /**
+   * @brief Counts indexed works and persisted AO3-specific reading states
+   *        without loading the full library into RAM.
+   */
+  static Ao3LibrarySummary getLibrarySummary();
 
   /**
    * @brief Helper to map AO3 string ratings to our char codes.

@@ -49,10 +49,9 @@ std::string wordsLabel(uint32_t wordCount) {
 }
 
 std::string subtitleFor(const Ao3LibraryActivity::Row& row) {
-  std::string subtitle = row.status;
+  std::string subtitle;
   const std::string author = compactField(row.metadata.author);
   if (!author.empty()) {
-    if (!subtitle.empty()) subtitle += " · ";
     subtitle += author;
   }
   if (row.metadata.wordCount > 0) {
@@ -71,12 +70,12 @@ std::string deriveStatus(const Ao3LibraryMetadata& meta) {
   const Ao3ReadingState ao3State = Ao3ReadingStateStore::load(cachePath);
   const char* ao3StateLabel = Ao3ReadingStateStore::labelFor(ao3State);
   if (ao3StateLabel && ao3StateLabel[0] != '\0') {
-    return ao3StateLabel;
+    return ao3State == Ao3ReadingState::UpdateAvailable ? "New Chapter" : "Waiting";
   }
 
   const BookReadingStats stats = BookReadingStats::load(cachePath);
   if (stats.isCompleted) {
-    return meta.isCompleted ? "Finished" : "Waiting for Chapter";
+    return meta.isCompleted ? "Finished" : "Waiting";
   }
   if (stats.sessionCount > 0 || stats.totalPagesTurned > 0 || stats.totalReadingSeconds > 0) {
     return "Reading";
@@ -383,6 +382,7 @@ void Ao3LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = rows[i].metadata.title[0] ? rows[i].metadata.title : "(Untitled)";
     if (!rows[i].subtitle.empty()) item.subtitle = rows[i].subtitle.c_str();
+    if (!rows[i].status.empty()) item.value = rows[i].status.c_str();
     item.icon = listIconFor(UIIcon::Book, 32);
     item.actionValue = static_cast<int16_t>(i);
     items.push_back(item);

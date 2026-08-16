@@ -37,6 +37,7 @@ class HomeActivity final : public Activity {
   bool hasBookmarks = false;
   bool hasClippings = false;
   bool hasAo3Fics = false;
+  char ao3MenuLabel[40] = "AO3 Library";
   bool hasOpdsServers = false;
   bool minimalMenuOpen = false;
   bool minimalSuppressInitialFrontRelease = false;

@@ -230,7 +230,7 @@ EpubReaderMenuActivity::TabMenuItems EpubReaderMenuActivity::buildMenuItems(
   mainItems.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_INTERVAL_SECONDS});
   mainItems.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
   if (hasAo3Update) {
-    mainItems.push_back({MenuAction::CHECK_AO3_UPDATE, StrId::STR_CHECK_UPDATES});
+    mainItems.push_back({MenuAction::AO3_INFORMATION, StrId::STR_CHECK_UPDATES, "AO3 Information"});
   }
   mainItems.push_back(
       {MenuAction::TOGGLE_COMPLETED, isBookCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
@@ -606,7 +606,7 @@ void EpubReaderMenuActivity::buildMenuScreen(UiApp::ScreenType& screen) {
   for (size_t i = 0; i < activeItems.size(); i++) {
     const auto& menuItem = activeItems[i];
     fui::ListItem item;
-    item.label = I18N.get(menuItem.labelId);
+    item.label = menuItem.customLabel ? menuItem.customLabel : I18N.get(menuItem.labelId);
     if (menuItem.action == MenuAction::ROTATE_SCREEN) {
       item.value = I18N.get(orientationLabels[pendingOrientation]);
     } else if (menuItem.action == MenuAction::AUTO_PAGE_TURN) {

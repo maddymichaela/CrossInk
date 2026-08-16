@@ -30,6 +30,7 @@ class RecentBooksActivity final : public Activity {
 
   // Recent tab state
   std::vector<RecentBook> recentBooks;
+  std::vector<std::string> ao3StatusBadges;
 
   freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
   UiApp app;

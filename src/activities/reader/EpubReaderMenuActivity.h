@@ -47,7 +47,7 @@ class EpubReaderMenuActivity final : public Activity {
     LOOKUP,
     LOOKUP_HISTORY,
     SET_BOOK_DICTIONARY,
-    CHECK_AO3_UPDATE
+    AO3_INFORMATION
   };
 
   explicit EpubReaderMenuActivity(
@@ -82,6 +82,7 @@ class EpubReaderMenuActivity final : public Activity {
   struct MenuItem {
     MenuAction action;
     StrId labelId;
+    const char* customLabel = nullptr;
   };
 
   enum class MenuTab : uint8_t { Main = 0, Bookmarks = 1, Settings = 2 };

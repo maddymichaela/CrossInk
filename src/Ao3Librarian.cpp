@@ -1,4 +1,5 @@
 #include "Ao3Librarian.h"
+#include "Ao3ReadingState.h"
 #include <memory>
 #include <Epub.h>
 #include <HalStorage.h>
@@ -980,6 +981,31 @@ bool Ao3Librarian::hasAnyAo3Fics() {
     }
   });
   return found;
+}
+
+Ao3LibrarySummary Ao3Librarian::getLibrarySummary() {
+  Ao3LibrarySummary summary;
+  forEachAo3InfoSidecar([&summary](const std::string& infoPath) {
+    Ao3LibraryMetadata meta;
+    if (!readAo3LibraryInfoAtPath(infoPath, meta) || meta.filepath[0] == '\0' ||
+        !Storage.exists(meta.filepath)) {
+      return;
+    }
+
+    if (summary.total < UINT16_MAX) summary.total++;
+    const std::string cachePath = Epub::cachePathForFilePath(meta.filepath, AO3_CACHE_ROOT);
+    switch (Ao3ReadingStateStore::load(cachePath)) {
+      case Ao3ReadingState::WaitingForChapter:
+        if (summary.waiting < UINT16_MAX) summary.waiting++;
+        break;
+      case Ao3ReadingState::UpdateAvailable:
+        if (summary.updatesAvailable < UINT16_MAX) summary.updatesAvailable++;
+        break;
+      case Ao3ReadingState::None:
+        break;
+    }
+  });
+  return summary;
 }
 
 bool Ao3Librarian::writeIndexRecord(const CompactIndexRecord& rec) {

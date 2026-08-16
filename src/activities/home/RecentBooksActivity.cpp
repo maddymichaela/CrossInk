@@ -1,6 +1,8 @@
 #include "RecentBooksActivity.h"
 
 #include <Arduino.h>
+#include <Epub.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -8,6 +10,8 @@
 #include <algorithm>
 #include <memory>
 
+#include "Ao3Librarian.h"
+#include "Ao3ReadingState.h"
 #include "BookActions.h"
 #include "FileBrowserActionActivity.h"
 #include "MappedInputManager.h"
@@ -39,8 +43,10 @@ RecentBooksActivity::RecentBooksActivity(GfxRenderer& renderer, MappedInputManag
 
 void RecentBooksActivity::loadRecentBooks() {
   recentBooks.clear();
+  ao3StatusBadges.clear();
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(std::min(books.size(), MAX_LIST_RECENT_BOOKS));
+  ao3StatusBadges.reserve(std::min(books.size(), MAX_LIST_RECENT_BOOKS));
 
   for (const auto& book : books) {
     if (recentBooks.size() >= MAX_LIST_RECENT_BOOKS) {
@@ -50,6 +56,25 @@ void RecentBooksActivity::loadRecentBooks() {
       continue;
     }
     recentBooks.push_back(book);
+
+    std::string badge;
+    if (FsHelpers::hasEpubExtension(book.path)) {
+      Epub epub(book.path, "/.crosspoint");
+      Ao3LibraryMetadata metadata;
+      if (Ao3Librarian::getLibraryInfo(epub, metadata)) {
+        switch (Ao3ReadingStateStore::load(epub.getCachePath())) {
+          case Ao3ReadingState::UpdateAvailable:
+            badge = "New Chapter";
+            break;
+          case Ao3ReadingState::WaitingForChapter:
+            badge = "Waiting";
+            break;
+          case Ao3ReadingState::None:
+            break;
+        }
+      }
+    }
+    ao3StatusBadges.push_back(std::move(badge));
   }
 }
 
@@ -88,6 +113,7 @@ void RecentBooksActivity::onEnter() {
 void RecentBooksActivity::onExit() {
   Activity::onExit();
   recentBooks.clear();
+  ao3StatusBadges.clear();
 }
 
 void RecentBooksActivity::loop() {
@@ -392,10 +418,12 @@ void RecentBooksActivity::buildListScreen(UiApp::ScreenType& screen) {
   // Transient per-render: points into the recentBooks strings.
   std::vector<fui::ListItem> items;
   items.reserve(recentBooks.size());
-  for (const auto& book : recentBooks) {
+  for (size_t i = 0; i < recentBooks.size(); ++i) {
+    const auto& book = recentBooks[i];
     fui::ListItem item;
     item.label = book.title.c_str();
     if (!book.author.empty()) item.subtitle = book.author.c_str();
+    if (i < ao3StatusBadges.size() && !ao3StatusBadges[i].empty()) item.value = ao3StatusBadges[i].c_str();
     item.icon = listIconFor(UITheme::getFileIcon(book.path), 32);  // subtitle rows carry the larger icon
     item.actionValue = static_cast<int16_t>(items.size());
     items.push_back(item);

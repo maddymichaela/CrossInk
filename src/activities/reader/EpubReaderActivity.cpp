@@ -24,7 +24,9 @@
 
 #include "../settings/DictionarySelectActivity.h"
 #include "../settings/KOReaderSettingsActivity.h"
+#include "Ao3Librarian.h"
 #include "Ao3ReadingState.h"
+#include "Ao3InfoActivity.h"
 #include "BookStatsActivity.h"
 #include "ClipSelectionActivity.h"
 #include "ClippingStore.h"
@@ -3399,22 +3401,43 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       requestUpdate();
       break;
     }
-    case EpubReaderMenuActivity::MenuAction::CHECK_AO3_UPDATE: {
+    case EpubReaderMenuActivity::MenuAction::AO3_INFORMATION: {
       if (!epub || epub->getAo3WorkId().empty()) {
         requestUpdate();
         break;
       }
-      const int page = section ? section->currentPage : nextPageNumber;
-      const int pageCount = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
-      if (!saveProgress(currentSpineIndex, page, pageCount)) {
-        LOG_ERR("AO3U", "Could not save progress before AO3 update check");
-        drawToast(renderer, tr(STR_NEARBY_TRANSFER_PROGRESS_SAVE_FAILED));
-        delay(1200);
-        requestUpdate();
-        break;
+
+      Ao3LibraryMetadata metadata;
+      if (!Ao3Librarian::getLibraryInfo(*epub, metadata)) {
+        snprintf(metadata.filepath, sizeof(metadata.filepath), "%s", epub->getPath().c_str());
+        snprintf(metadata.title, sizeof(metadata.title), "%s", epub->getTitle().c_str());
+        snprintf(metadata.author, sizeof(metadata.author), "%s", epub->getAuthor().c_str());
+        snprintf(metadata.updatedDate, sizeof(metadata.updatedDate), "%s", epub->getAo3UpdateDate().c_str());
+        metadata.isCompleted = epub->isAo3Completed();
       }
-      activityManager.goToAo3Update(epub->getPath(), epub->getAo3WorkId(), epub->getAo3UpdateDate());
-      return;
+
+      startActivityForResult(
+          std::make_unique<Ao3InfoActivity>(renderer, mappedInput, metadata, epub->getCachePath(),
+                                            epub->getAo3WorkId(), epub->getAo3UpdateDate()),
+          [this](const ActivityResult& result) {
+            const auto* info = std::get_if<Ao3InfoResult>(&result.data);
+            if (!info || !info->checkUpdates || !epub || epub->getAo3WorkId().empty()) {
+              requestUpdate();
+              return;
+            }
+
+            const int page = section ? section->currentPage : nextPageNumber;
+            const int pageCount = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
+            if (!saveProgress(currentSpineIndex, page, pageCount)) {
+              LOG_ERR("AO3U", "Could not save progress before AO3 update check");
+              drawToast(renderer, tr(STR_NEARBY_TRANSFER_PROGRESS_SAVE_FAILED));
+              delay(1200);
+              requestUpdate();
+              return;
+            }
+            activityManager.goToAo3Update(epub->getPath(), epub->getAo3WorkId(), epub->getAo3UpdateDate());
+          });
+      break;
     }
     case EpubReaderMenuActivity::MenuAction::SYNC: {
       if (activeFootnotePreview) {

@@ -91,6 +91,10 @@ struct ReadingStatsResult {
   bool changed = false;
 };
 
+struct Ao3InfoResult {
+  bool checkUpdates = false;
+};
+
 struct ClippingResult {
   std::string text;
   int fromWordIdx = -1;
@@ -122,7 +126,8 @@ struct ClippingJumpResult {
 using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
                                    IntervalResult, OptionSelectionResult, PageResult, ProgressChangeResult, SyncResult,
                                    NetworkModeResult, FootnoteResult, BookmarkResult, FileBrowserActionResult,
-                                   FilePathResult, WordResult, ReadingStatsResult, ClippingResult, ClippingJumpResult>;
+                                   FilePathResult, WordResult, ReadingStatsResult, Ao3InfoResult, ClippingResult,
+                                   ClippingJumpResult>;
 
 struct ActivityResult {
   bool isCancelled = false;
