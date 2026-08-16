@@ -980,13 +980,31 @@ void Ao3Librarian::forEachLibraryInfo(const std::function<void(const Ao3LibraryM
 
 bool Ao3Librarian::findLibraryInfoByCacheHash(const uint32_t cacheHash, Ao3LibraryMetadata& meta) {
   bool found = false;
-  forEachLibraryInfo([&](const Ao3LibraryMetadata& candidate) {
-    if (!found && candidate.filepath[0] != '\0' && ao3PathHash(candidate.filepath) == cacheHash) {
-      meta = candidate;
-      found = true;
+  findLibraryInfoByCacheHashes(&cacheHash, 1, &meta, &found);
+  return found;
+}
+
+void Ao3Librarian::findLibraryInfoByCacheHashes(const uint32_t* cacheHashes, const size_t count,
+                                                Ao3LibraryMetadata* metadata, bool* found) {
+  if (!cacheHashes || !metadata || !found || count == 0) return;
+
+  for (size_t i = 0; i < count; ++i) found[i] = false;
+  size_t remaining = count;
+  forEachAo3InfoSidecar([&](const std::string& infoPath) {
+    if (remaining == 0) return;
+
+    Ao3LibraryMetadata candidate;
+    if (!readAo3LibraryInfoAtPath(infoPath, candidate) || candidate.filepath[0] == '\0') return;
+    const uint32_t candidateHash = ao3PathHash(candidate.filepath);
+    for (size_t i = 0; i < count; ++i) {
+      if (!found[i] && cacheHashes[i] == candidateHash) {
+        metadata[i] = candidate;
+        found[i] = true;
+        remaining--;
+        break;
+      }
     }
   });
-  return found;
 }
 
 bool Ao3Librarian::hasAnyAo3Fics() {

@@ -55,6 +55,16 @@ class Ao3Librarian {
   static bool findLibraryInfoByCacheHash(uint32_t cacheHash, Ao3LibraryMetadata& meta);
 
   /**
+   * @brief Resolves a small visible page of compact-index hashes in one SD scan.
+   *
+   * The caller supplies parallel arrays. found[i] is set only when metadata for
+   * cacheHashes[i] was read successfully. This keeps the rich library browser
+   * at three metadata records instead of retaining the whole library in RAM.
+   */
+  static void findLibraryInfoByCacheHashes(const uint32_t* cacheHashes, size_t count,
+                                           Ao3LibraryMetadata* metadata, bool* found);
+
+  /**
    * @brief Quick check to see if any AO3 library info exists.
    */
   static bool hasAnyAo3Fics();

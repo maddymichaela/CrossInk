@@ -1,0 +1,303 @@
+#include "Ao3IndexActivity.h"
+
+#include <Arduino.h>
+#include <Epub.h>
+#include <GfxRenderer.h>
+#include <HalStorage.h>
+#include <I18n.h>
+#include <Logging.h>
+#include <ZipFile.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+
+#include "Ao3CompactIndexRecord.h"
+#include "Ao3Librarian.h"
+#include "MappedInputManager.h"
+#include "components/TouchHeaderBackButton.h"
+#include "components/UITheme.h"
+#include "fontIds.h"
+
+namespace {
+constexpr char AO3_INDEX_PATH[] = "/.crosspoint/ao3_library_index.bin";
+constexpr uint8_t AO3_INDEX_VERSION = 1;
+
+bool readIndexHeader(HalFile& file, uint16_t& recordCount) {
+  char magic[4];
+  uint8_t version = 0;
+  uint32_t sequence = 0;
+  uint8_t reserved = 0;
+  return file.read(magic, 4) == 4 && file.read(&version, 1) == 1 &&
+         file.read(reinterpret_cast<uint8_t*>(&recordCount), 2) == 2 &&
+         file.read(reinterpret_cast<uint8_t*>(&sequence), 4) == 4 && file.read(&reserved, 1) == 1 &&
+         memcmp(magic, "AO3X", 4) == 0 && version == AO3_INDEX_VERSION && recordCount <= MAX_LIBRARY_BOOKS;
+}
+}  // namespace
+
+Ao3IndexActivity::Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                   std::string scanRoot, const int batchSize)
+    : Activity("Ao3Index", renderer, mappedInput),
+      scanRoot(std::move(scanRoot)),
+      batchSize(std::clamp(batchSize, 1, 20)) {}
+
+uint32_t Ao3IndexActivity::pathHash(const std::string& path) {
+  return static_cast<uint32_t>(ZipFile::fnvHash64(path.c_str(), path.size()));
+}
+
+bool Ao3IndexActivity::isEpubName(std::string name) {
+  const size_t dot = name.find_last_of('.');
+  if (dot == std::string::npos) return false;
+  name = name.substr(dot + 1);
+  std::transform(name.begin(), name.end(), name.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return name == "epub";
+}
+
+bool Ao3IndexActivity::alreadyHandled(const uint32_t hash) const {
+  return std::binary_search(indexedHashes.begin(), indexedHashes.end(), hash) ||
+         std::binary_search(attemptedHashes.begin(), attemptedHashes.end(), hash);
+}
+
+void Ao3IndexActivity::buildIndexedHashes() {
+  indexedHashes.clear();
+  HalFile file;
+  if (!Storage.openFileForRead("AO3I", AO3_INDEX_PATH, file)) return;
+  uint16_t count = 0;
+  if (!readIndexHeader(file, count)) {
+    file.close();
+    return;
+  }
+  for (uint16_t i = 0; i < count; ++i) {
+    CompactIndexRecord record;
+    if (file.read(reinterpret_cast<uint8_t*>(&record), sizeof(record)) != sizeof(record)) break;
+    if (!(record.flags & 1)) indexedHashes.push_back(record.cacheHash);
+  }
+  file.close();
+  std::sort(indexedHashes.begin(), indexedHashes.end());
+}
+
+void Ao3IndexActivity::onEnter() {
+  Activity::onEnter();
+  state = State::Discovering;
+  unindexedCount = indexedCount = failedCount = currentBook = 0;
+  pendingBooks.clear();
+  attemptedHashes.clear();
+  buildIndexedHashes();
+  if (indexedHashes.size() >= MAX_LIBRARY_BOOKS) {
+    state = State::Error;
+    errorMessage = "AO3 library is full (400 works).";
+  } else if (scanRoot.empty() || !Storage.exists(scanRoot.c_str())) {
+    state = State::Error;
+    errorMessage = "The configured AO3 folder was not found.";
+  } else {
+    directories.push_back({scanRoot, 0});
+  }
+  requestUpdate(true);
+}
+
+void Ao3IndexActivity::discoverNextDirectory() {
+  if (directories.empty()) {
+    state = unindexedCount > 0 ? State::Confirm : State::Complete;
+    requestUpdate(true);
+    return;
+  }
+  DirectoryEntry current = std::move(directories.back());
+  directories.pop_back();
+  HalFile directory = Storage.open(current.path.c_str());
+  if (!directory || !directory.isDirectory()) {
+    if (directory) directory.close();
+    return;
+  }
+
+  HalFile child;
+  char name[256];
+  while (child = directory.openNextFile()) {
+    child.getName(name, sizeof(name));
+    std::string path = current.path;
+    if (path.back() != '/') path += '/';
+    path += name;
+    if (child.isDirectory()) {
+      if (name[0] != '.' && strcmp(name, "System Volume Information") != 0 && current.depth < 6) {
+        directories.push_back({std::move(path), static_cast<uint8_t>(current.depth + 1)});
+      }
+    } else if (isEpubName(name) && !alreadyHandled(pathHash(path))) {
+      ++unindexedCount;
+    }
+    child.close();
+  }
+  directory.close();
+  yield();
+  requestUpdate();
+}
+
+void Ao3IndexActivity::collectNextBatch() {
+  buildIndexedHashes();
+  pendingBooks.clear();
+  directories.clear();
+  directories.push_back({scanRoot, 0});
+  while (!directories.empty() && static_cast<int>(pendingBooks.size()) < batchSize) {
+    DirectoryEntry current = std::move(directories.back());
+    directories.pop_back();
+    HalFile directory = Storage.open(current.path.c_str());
+    if (!directory || !directory.isDirectory()) {
+      if (directory) directory.close();
+      continue;
+    }
+    HalFile child;
+    char name[256];
+    while (child = directory.openNextFile()) {
+      child.getName(name, sizeof(name));
+      std::string path = current.path;
+      if (path.back() != '/') path += '/';
+      path += name;
+      if (child.isDirectory()) {
+        if (name[0] != '.' && strcmp(name, "System Volume Information") != 0 && current.depth < 6) {
+          directories.push_back({std::move(path), static_cast<uint8_t>(current.depth + 1)});
+        }
+      } else if (isEpubName(name) && !alreadyHandled(pathHash(path))) {
+        pendingBooks.push_back(std::move(path));
+      }
+      child.close();
+      if (static_cast<int>(pendingBooks.size()) >= batchSize) break;
+    }
+    directory.close();
+    yield();
+  }
+  directories.clear();
+  currentBook = 0;
+  if (pendingBooks.empty()) {
+    state = State::Complete;
+  } else {
+    state = State::Indexing;
+  }
+  requestUpdate(true);
+}
+
+void Ao3IndexActivity::indexNextBook() {
+  if (currentBook >= pendingBooks.size()) {
+    state = State::BatchComplete;
+    requestUpdate(true);
+    return;
+  }
+  if (indexedHashes.size() + indexedCount >= MAX_LIBRARY_BOOKS) {
+    state = State::Complete;
+    requestUpdate(true);
+    return;
+  }
+  if (ESP.getFreeHeap() < 80U * 1024U || ESP.getMaxAllocHeap() < 48U * 1024U) {
+    yield();
+    return;
+  }
+
+  const std::string path = pendingBooks[currentBook];
+  currentTitle = path.substr(path.find_last_of('/') + 1);
+  const uint32_t hash = pathHash(path);
+  const auto insertAttempted = [this, hash] {
+    const auto it = std::lower_bound(attemptedHashes.begin(), attemptedHashes.end(), hash);
+    if (it == attemptedHashes.end() || *it != hash) attemptedHashes.insert(it, hash);
+  };
+
+  Epub epub(path, "/.crosspoint");
+  const bool loaded = epub.load(true, true, Epub::XLocationLoadMode::Skip);
+  const bool ao3 = loaded && (epub.hasAo3Info() || Ao3Librarian::sniffNativeAo3Preface(epub));
+  if (ao3 && Ao3Librarian::scrape(epub, true)) {
+    ++indexedCount;
+  } else {
+    ++failedCount;
+  }
+  insertAttempted();
+  ++currentBook;
+  requestUpdate(true);
+}
+
+void Ao3IndexActivity::loop() {
+  if (state == State::Discovering) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      finish();
+      return;
+    }
+    discoverNextDirectory();
+    return;
+  }
+  if (state == State::Indexing) {
+    indexNextBook();
+    return;
+  }
+  if (state == State::Confirm) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) collectNextBatch();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) finish();
+    return;
+  }
+  if (state == State::BatchComplete) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) collectNextBatch();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) finish();
+    return;
+  }
+  if (state == State::Complete || state == State::Error) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      finish();
+    }
+  }
+}
+
+void Ao3IndexActivity::render(RenderLock&&) {
+  renderer.clearScreen();
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+  if (mappedInput.hasTouchHardware()) {
+    TouchHeaderBackButton::draw(renderer, header, "AO3 Auto Index", false);
+  } else {
+    GUI.drawHeader(renderer, header, "AO3 Auto Index");
+  }
+  const int center = renderer.getScreenHeight() / 2;
+  char primary[96] = {};
+  char secondary[128] = {};
+  switch (state) {
+    case State::Discovering:
+      snprintf(primary, sizeof(primary), "Scanning AO3 folder...");
+      snprintf(secondary, sizeof(secondary), "%u new EPUB%s found", static_cast<unsigned>(unindexedCount),
+               unindexedCount == 1 ? "" : "s");
+      break;
+    case State::Confirm:
+      snprintf(primary, sizeof(primary), "%u new EPUB%s found", static_cast<unsigned>(unindexedCount),
+               unindexedCount == 1 ? "" : "s");
+      snprintf(secondary, sizeof(secondary), "Index the next batch of %d?", batchSize);
+      break;
+    case State::Indexing:
+      snprintf(primary, sizeof(primary), "Indexing %u / %u", static_cast<unsigned>(currentBook + 1),
+               static_cast<unsigned>(pendingBooks.size()));
+      snprintf(secondary, sizeof(secondary), "%.70s", currentTitle.c_str());
+      break;
+    case State::BatchComplete:
+      snprintf(primary, sizeof(primary), "Batch complete");
+      snprintf(secondary, sizeof(secondary), "%u indexed, %u skipped - continue?",
+               static_cast<unsigned>(indexedCount), static_cast<unsigned>(failedCount));
+      break;
+    case State::Complete:
+      snprintf(primary, sizeof(primary), "AO3 indexing complete");
+      snprintf(secondary, sizeof(secondary), "%u indexed, %u skipped",
+               static_cast<unsigned>(indexedCount), static_cast<unsigned>(failedCount));
+      break;
+    case State::Error:
+      snprintf(primary, sizeof(primary), "Unable to index");
+      snprintf(secondary, sizeof(secondary), "%.110s", errorMessage.c_str());
+      break;
+  }
+  renderer.drawCenteredText(UI_12_FONT_ID, center - 30, primary, true, EpdFontFamily::BOLD);
+  const auto lines = renderer.wrappedText(UI_10_FONT_ID, secondary, renderer.getScreenWidth() - 60, 3);
+  int y = center + 10;
+  for (const auto& line : lines) {
+    renderer.drawCenteredText(UI_10_FONT_ID, y, line.c_str());
+    y += renderer.getLineHeight(UI_10_FONT_ID);
+  }
+  const bool choice = state == State::Confirm || state == State::BatchComplete;
+  const bool done = state == State::Complete || state == State::Error;
+  const auto labels = choice ? mappedInput.mapLabels("Stop", "Continue", "", "")
+                             : (done ? mappedInput.mapLabels("", "Done", "", "")
+                                     : mappedInput.mapLabels("Cancel", "", "", ""));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  renderer.displayBuffer();
+}
