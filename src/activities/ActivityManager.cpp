@@ -17,6 +17,7 @@
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/TouchRegistry.h"
+#include "home/Ao3LibraryActivity.h"
 #include "home/AlertActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
@@ -350,6 +351,10 @@ void ActivityManager::goToRecentBooks() {
   }
 }
 
+void ActivityManager::goToAo3Library(const size_t selectorIndex) {
+  replaceActivity(std::make_unique<Ao3LibraryActivity>(renderer, mappedInput, selectorIndex));
+}
+
 void ActivityManager::goToBrowser() {
   const auto& servers = OPDS_STORE.getServers();
   // Skip the server picker when there's only one server configured
@@ -420,6 +425,8 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, const bool initialFul
       initialMenuItem = HomeMenuItem::FILE_BROWSER;
     } else if (activityName == "RecentBooks") {
       initialMenuItem = HomeMenuItem::RECENTS;
+    } else if (activityName == "Ao3Library") {
+      initialMenuItem = HomeMenuItem::AO3_LIBRARY;
     } else if (activityName == "OpdsBookBrowser") {
       initialMenuItem = HomeMenuItem::OPDS_BROWSER;
     } else if (activityName == "CrossPointWebServer") {

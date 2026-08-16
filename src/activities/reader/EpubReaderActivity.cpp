@@ -24,6 +24,7 @@
 
 #include "../settings/DictionarySelectActivity.h"
 #include "../settings/KOReaderSettingsActivity.h"
+#include "Ao3ReadingState.h"
 #include "BookStatsActivity.h"
 #include "ClipSelectionActivity.h"
 #include "ClippingStore.h"
@@ -1714,7 +1715,8 @@ void EpubReaderActivity::applyBookStatsEditsFromDisk() {
 void EpubReaderActivity::handleBookStatsReturn() {
   applyBookStatsEditsFromDisk();
   completionPromptShown = stats.isCompleted;
-  if (stats.isCompleted && SETTINGS.moveFinishedToReadFolder && epub && !isInReadFolder(epub->getPath())) {
+  if (stats.isCompleted && SETTINGS.moveFinishedToReadFolder && epub && !isAo3UnfinishedWork() &&
+      !isInReadFolder(epub->getPath())) {
     pendingReadFolderMove = true;
   } else if (!stats.isCompleted) {
     pendingReadFolderMove = false;
@@ -1828,6 +1830,22 @@ void EpubReaderActivity::queueCompletionPromptIfNeeded() {
   }
 
   lastAtOrPastCompletionTrigger = atOrPastTrigger;
+}
+
+bool EpubReaderActivity::isAo3UnfinishedWork() const {
+  return epub && epub->isAo3Work() && !epub->isAo3Completed();
+}
+
+void EpubReaderActivity::updateAo3ReadingStateForEndOfBook(const bool atEndOfBook) {
+  if (!epub || !epub->isAo3Work()) {
+    return;
+  }
+
+  if (atEndOfBook && !epub->isAo3Completed()) {
+    Ao3ReadingStateStore::save(epub->getCachePath(), Ao3ReadingState::WaitingForChapter);
+  } else if (epub->isAo3Completed()) {
+    Ao3ReadingStateStore::remove(epub->getCachePath());
+  }
 }
 
 void EpubReaderActivity::captureGlobalReaderSettings() {
@@ -2536,7 +2554,9 @@ void EpubReaderActivity::loop() {
   // setBookCompleted() also arms this when the user marks a book finished before
   // the End-of-Book screen.
   if (atEndOfBook) {
-    pendingReadFolderMove = SETTINGS.moveFinishedToReadFolder && !isInReadFolder(epub->getPath());
+    updateAo3ReadingStateForEndOfBook(true);
+    pendingReadFolderMove =
+        SETTINGS.moveFinishedToReadFolder && !isAo3UnfinishedWork() && !isInReadFolder(epub->getPath());
   } else if (!stats.isCompleted) {
     pendingReadFolderMove = false;
   }
@@ -4314,13 +4334,21 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
   }
   if (isCompleted) {
     completionPromptShown = true;
+    if (isAo3UnfinishedWork()) {
+      Ao3ReadingStateStore::save(epub->getCachePath(), Ao3ReadingState::WaitingForChapter);
+    } else if (epub && epub->isAo3Work()) {
+      Ao3ReadingStateStore::remove(epub->getCachePath());
+    }
     if (SETTINGS.removeReadBooksFromRecents) {
       RECENT_BOOKS.removeByPath(epub->getPath());
     }
-    if (SETTINGS.moveFinishedToReadFolder && !isInReadFolder(epub->getPath())) {
+    if (SETTINGS.moveFinishedToReadFolder && !isAo3UnfinishedWork() && !isInReadFolder(epub->getPath())) {
       pendingReadFolderMove = true;
     }
   } else {
+    if (epub && epub->isAo3Work()) {
+      Ao3ReadingStateStore::remove(epub->getCachePath());
+    }
     if (SETTINGS.removeReadBooksFromRecents) {
       RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
     }

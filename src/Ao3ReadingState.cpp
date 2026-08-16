@@ -1,0 +1,77 @@
+#include "Ao3ReadingState.h"
+
+#include <HalStorage.h>
+#include <Logging.h>
+#include <Serialization.h>
+
+namespace {
+constexpr char AO3_STATE_FILE[] = "/ao3_state.bin";
+constexpr uint8_t AO3_STATE_VERSION = 1;
+constexpr uint32_t AO3_STATE_MAGIC = 0x3353414F;  // "OAS3" LE
+
+struct Ao3StateRecord {
+  uint32_t magic = AO3_STATE_MAGIC;
+  uint8_t version = AO3_STATE_VERSION;
+  uint8_t state = 0;
+  uint8_t reserved[2] = {0, 0};
+};
+
+bool isValidState(uint8_t state) {
+  return state == static_cast<uint8_t>(Ao3ReadingState::None) ||
+         state == static_cast<uint8_t>(Ao3ReadingState::WaitingForChapter) ||
+         state == static_cast<uint8_t>(Ao3ReadingState::UpdateAvailable);
+}
+
+std::string statePath(const std::string& cachePath) { return cachePath + AO3_STATE_FILE; }
+}  // namespace
+
+Ao3ReadingState Ao3ReadingStateStore::load(const std::string& cachePath) {
+  FsFile file;
+  if (!Storage.openFileForRead("AO3S", statePath(cachePath), file)) {
+    return Ao3ReadingState::None;
+  }
+
+  Ao3StateRecord record;
+  const bool ok = serialization::tryReadPod(file, record);
+  file.close();
+  if (!ok || record.magic != AO3_STATE_MAGIC || record.version != AO3_STATE_VERSION || !isValidState(record.state)) {
+    LOG_DBG("AO3S", "Ignoring invalid AO3 reading state: %s", cachePath.c_str());
+    return Ao3ReadingState::None;
+  }
+  return static_cast<Ao3ReadingState>(record.state);
+}
+
+bool Ao3ReadingStateStore::save(const std::string& cachePath, const Ao3ReadingState state) {
+  Storage.mkdir(cachePath.c_str());
+  if (state == Ao3ReadingState::None) {
+    return remove(cachePath);
+  }
+
+  FsFile file;
+  if (!Storage.openFileForWrite("AO3S", statePath(cachePath), file)) {
+    return false;
+  }
+
+  Ao3StateRecord record;
+  record.state = static_cast<uint8_t>(state);
+  const bool ok = serialization::tryWritePod(file, record) && file.sync();
+  file.close();
+  return ok;
+}
+
+bool Ao3ReadingStateStore::remove(const std::string& cachePath) {
+  const std::string path = statePath(cachePath);
+  return !Storage.exists(path.c_str()) || Storage.remove(path.c_str());
+}
+
+const char* Ao3ReadingStateStore::labelFor(const Ao3ReadingState state) {
+  switch (state) {
+    case Ao3ReadingState::WaitingForChapter:
+      return "Waiting for Chapter";
+    case Ao3ReadingState::UpdateAvailable:
+      return "New Chapter Available";
+    case Ao3ReadingState::None:
+    default:
+      return "";
+  }
+}

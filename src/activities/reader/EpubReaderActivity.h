@@ -405,6 +405,8 @@ class EpubReaderActivity final : public Activity {
   bool isAtOrPastCompletionTrigger() const;
   bool shouldQueueCompletionPromptOnChapterExit() const;
   void queueCompletionPromptIfNeeded();
+  bool isAo3UnfinishedWork() const;
+  void updateAo3ReadingStateForEndOfBook(bool atEndOfBook);
   void setBookCompleted(bool isCompleted);
   void showCompletedFeedback(bool isCompleted);
   void showTiltPageTurnFeedback(bool enabled);

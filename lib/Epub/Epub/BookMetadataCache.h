@@ -17,6 +17,9 @@ class BookMetadataCache {
     std::string language;
     std::string coverItemHref;
     std::string textReferenceHref;
+    std::string ao3WorkId;
+    std::string ao3UpdateDate;
+    bool ao3IsCompleted = false;
   };
 
   struct SpineEntry {
