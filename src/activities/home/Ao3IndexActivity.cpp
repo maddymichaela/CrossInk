@@ -114,7 +114,7 @@ void Ao3IndexActivity::discoverNextDirectory() {
 
   HalFile child;
   char name[256];
-  while (child = directory.openNextFile()) {
+  while ((child = directory.openNextFile())) {
     child.getName(name, sizeof(name));
     std::string path = current.path;
     if (path.back() != '/') path += '/';
@@ -148,7 +148,7 @@ void Ao3IndexActivity::collectNextBatch() {
     }
     HalFile child;
     char name[256];
-    while (child = directory.openNextFile()) {
+    while ((child = directory.openNextFile())) {
       child.getName(name, sizeof(name));
       std::string path = current.path;
       if (path.back() != '/') path += '/';

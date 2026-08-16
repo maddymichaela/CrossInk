@@ -10,8 +10,7 @@
 #include <algorithm>
 #include <memory>
 
-#include "Ao3Librarian.h"
-#include "Ao3ReadingState.h"
+#include "Ao3DisplayStatus.h"
 #include "BookActions.h"
 #include "FileBrowserActionActivity.h"
 #include "MappedInputManager.h"
@@ -57,21 +56,12 @@ void RecentBooksActivity::loadRecentBooks() {
     }
     recentBooks.push_back(book);
 
-    std::string badge;
+    std::string badge = book.pinned ? "Pinned" : "";
     if (FsHelpers::hasEpubExtension(book.path)) {
-      Epub epub(book.path, "/.crosspoint");
-      Ao3LibraryMetadata metadata;
-      if (Ao3Librarian::getLibraryInfo(epub, metadata)) {
-        switch (Ao3ReadingStateStore::load(epub.getCachePath())) {
-          case Ao3ReadingState::UpdateAvailable:
-            badge = "New Chapter";
-            break;
-          case Ao3ReadingState::WaitingForChapter:
-            badge = "Waiting";
-            break;
-          case Ao3ReadingState::None:
-            break;
-        }
+      Ao3DisplayStatus status;
+      if (loadAo3DisplayStatus(book.path, status)) {
+        if (!badge.empty()) badge += " | ";
+        badge += ao3DisplayStatusLabel(status);
       }
     }
     ao3StatusBadges.push_back(std::move(badge));
@@ -384,6 +374,13 @@ void RecentBooksActivity::showBookActionMenu(const size_t bookIndex, const bool 
             return;
           case FileBrowserAction::SendNearby:
             activityManager.goToNearbyBookSend(book.path, false);
+            return;
+          case FileBrowserAction::PinToHome:
+          case FileBrowserAction::UnpinFromHome:
+            BookActions::setPinnedToHome(book.path,
+                                         static_cast<FileBrowserAction>(actionResult->action) ==
+                                             FileBrowserAction::PinToHome);
+            reloadAfterBookAction();
             return;
           case FileBrowserAction::PinFavorite:
           case FileBrowserAction::UnpinFavorite:

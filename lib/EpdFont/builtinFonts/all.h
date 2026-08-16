@@ -43,6 +43,13 @@
 #include BUILTIN_READING_FONT_HEADER(lexenddeca_16_italic)
 #include BUILTIN_READING_FONT_HEADER(lexenddeca_16_regular)
 
+// AvesO3's compact phone-like reading option. Only 10pt is bundled to keep
+// enough OTA partition headroom for CrossInk's newer subsystems.
+#include <builtinFonts/notosans_10_bold.h>
+#include <builtinFonts/notosans_10_bolditalic.h>
+#include <builtinFonts/notosans_10_italic.h>
+#include <builtinFonts/notosans_10_regular.h>
+
 #undef BUILTIN_READING_FONT_HEADER
 
 // UI fonts - no emoji or PHM variants.

@@ -122,3 +122,13 @@ int ButtonNavigator::previousPageIndex(const int currentIndex, const int totalIt
 
   return lastPageIndex * itemsPerPage;
 }
+
+int ButtonNavigator::nextThreeIndex(const int currentIndex, const int totalItems) {
+  if (totalItems <= 0) return 0;
+  return (currentIndex + 3) % totalItems;
+}
+
+int ButtonNavigator::previousThreeIndex(const int currentIndex, const int totalItems) {
+  if (totalItems <= 0) return 0;
+  return (currentIndex + totalItems - (3 % totalItems)) % totalItems;
+}

@@ -563,8 +563,20 @@ void EpubReaderMenuActivity::loop() {
   buttonNavigator.onPreviousRelease([this, menuCount, &moveSelection] {
     moveSelection(ButtonNavigator::previousIndex(selectedIndex + 1, menuCount + 1));
   });
-  buttonNavigator.onNextContinuous([this] { moveActiveTab(true); });
-  buttonNavigator.onPreviousContinuous([this] { moveActiveTab(false); });
+  buttonNavigator.onNextContinuous([this, menuCount, &moveSelection] {
+    if (selectedIndex < 0) {
+      moveActiveTab(true);
+    } else {
+      moveSelection(ButtonNavigator::nextThreeIndex(selectedIndex + 1, menuCount + 1));
+    }
+  });
+  buttonNavigator.onPreviousContinuous([this, menuCount, &moveSelection] {
+    if (selectedIndex < 0) {
+      moveActiveTab(false);
+    } else {
+      moveSelection(ButtonNavigator::previousThreeIndex(selectedIndex + 1, menuCount + 1));
+    }
+  });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     activateSelectedItem();

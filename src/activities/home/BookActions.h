@@ -17,6 +17,7 @@ void clearFileMetadata(const std::string& fullPath);
 bool clearBookCache(const std::string& fullPath);
 bool deleteBookStats(const std::string& fullPath);
 bool resetBookReaderSettings(const std::string& fullPath);
+bool setPinnedToHome(const std::string& fullPath, bool pinned);
 std::vector<std::string> epubRenderModeOptions();
 uint8_t epubRenderModeDisplayIndex(uint8_t renderMode);
 uint8_t epubRenderModeForDisplayIndex(uint8_t displayIndex);

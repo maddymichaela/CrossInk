@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "Ao3DisplayStatus.h"
 #include "Ao3LibraryMetadata.h"
 #include "Ao3SortFilterState.h"
 #include "Ao3ViewEntry.h"
@@ -19,7 +20,7 @@ class Ao3LibraryActivity final : public Activity {
   void loop() override;
   void render(RenderLock&& lock) override;
 
-  enum class DisplayStatus : uint8_t { Unread, Reading, Waiting, UpdateAvailable, Finished };
+  using DisplayStatus = Ao3DisplayStatus;
 
  private:
   enum class ScreenState : uint8_t { Library, FilterPanel, FandomPicker, RelationshipPicker, ManagePanel };

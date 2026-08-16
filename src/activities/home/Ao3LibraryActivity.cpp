@@ -17,12 +17,11 @@
 
 #include "Ao3CompactIndexRecord.h"
 #include "Ao3Librarian.h"
-#include "Ao3ReadingState.h"
+#include "Ao3DisplayStatus.h"
 #include "MappedInputManager.h"
 #include "activities/ActivityResult.h"
 #include "activities/home/Ao3IndexActivity.h"
 #include "activities/home/FileBrowserActivity.h"
-#include "activities/reader/BookReadingStats.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
@@ -113,28 +112,6 @@ SortMode nextSortMode(const SortMode mode, const int direction) {
     }
   }
   return modes[(index + direction + count) % count];
-}
-
-Ao3LibraryActivity::DisplayStatus deriveStatus(const Ao3LibraryMetadata& metadata) {
-  if (metadata.filepath[0] == '\0') return Ao3LibraryActivity::DisplayStatus::Unread;
-  const std::string cachePath = Epub::cachePathForFilePath(metadata.filepath, "/.crosspoint");
-  const Ao3ReadingState ao3State = Ao3ReadingStateStore::load(cachePath);
-  if (ao3State == Ao3ReadingState::UpdateAvailable) {
-    return Ao3LibraryActivity::DisplayStatus::UpdateAvailable;
-  }
-  if (ao3State == Ao3ReadingState::WaitingForChapter) {
-    return Ao3LibraryActivity::DisplayStatus::Waiting;
-  }
-
-  const BookReadingStats stats = BookReadingStats::load(cachePath);
-  if (stats.isCompleted) {
-    return metadata.isCompleted ? Ao3LibraryActivity::DisplayStatus::Finished
-                                : Ao3LibraryActivity::DisplayStatus::Waiting;
-  }
-  if (stats.sessionCount > 0 || stats.totalPagesTurned > 0 || stats.totalReadingSeconds > 0) {
-    return Ao3LibraryActivity::DisplayStatus::Reading;
-  }
-  return Ao3LibraryActivity::DisplayStatus::Unread;
 }
 
 std::string truncatedToFit(const GfxRenderer& renderer, std::string text, const int fontId,
@@ -307,7 +284,7 @@ void Ao3LibraryActivity::buildAllowedHashes(const std::string& root, const int m
     }
     HalFile child;
     char name[256];
-    while (child = directory.openNextFile()) {
+    while ((child = directory.openNextFile())) {
       child.getName(name, sizeof(name));
       std::string path = current.path;
       if (path.back() != '/') path += '/';
@@ -338,7 +315,7 @@ void Ao3LibraryActivity::buildFandomList(std::vector<std::string>& output) const
     }
     HalFile child;
     char name[256];
-    while (child = directory.openNextFile()) {
+    while ((child = directory.openNextFile())) {
       child.getName(name, sizeof(name));
       if (child.isDirectory() && name[0] != '.' && strcmp(name, "System Volume Information") != 0) {
         output.emplace_back(name);
@@ -380,7 +357,7 @@ void Ao3LibraryActivity::buildRelationshipList(const char* fandom, std::vector<s
     }
     HalFile child;
     char name[256];
-    while (child = directory.openNextFile()) {
+    while ((child = directory.openNextFile())) {
       child.getName(name, sizeof(name));
       if (child.isDirectory() && name[0] != '.') output.emplace_back(name);
       child.close();
@@ -460,7 +437,7 @@ void Ao3LibraryActivity::loadPageCache(const int page) {
   const int summaryWidth = renderer.getScreenWidth() - 40;
   for (int slot = 0; slot < count; ++slot) {
     if (!pageMetadataLoaded[slot]) continue;
-    pageStatus[slot] = deriveStatus(pageMetadata[slot]);
+    pageStatus[slot] = deriveAo3DisplayStatus(pageMetadata[slot]);
     if (pageMetadata[slot].summary[0]) {
       wrappedSummary[slot] = renderer.wrappedText(SMALL_FONT_ID, pageMetadata[slot].summary, summaryWidth, 3);
     }

@@ -177,6 +177,13 @@ EpdFont bitter16ItalicFont(&bitter_16_italic);
 EpdFont bitter16BoldItalicFont(&bitter_16_bolditalic);
 EpdFontFamily bitter16FontFamily(&bitter16RegularFont, &bitter16BoldFont, &bitter16ItalicFont, &bitter16BoldItalicFont);
 
+EpdFont notoSans10RegularFont(&notosans_10_regular);
+EpdFont notoSans10BoldFont(&notosans_10_bold);
+EpdFont notoSans10ItalicFont(&notosans_10_italic);
+EpdFont notoSans10BoldItalicFont(&notosans_10_bolditalic);
+EpdFontFamily notoSans10FontFamily(&notoSans10RegularFont, &notoSans10BoldFont, &notoSans10ItalicFont,
+                                   &notoSans10BoldItalicFont);
+
 EpdFont smallFont(&inter_8_regular);
 EpdFontFamily smallFontFamily(&smallFont);
 
@@ -745,6 +752,7 @@ void setupDisplayAndFonts(const bool seamless = false, const bool loadReaderReso
   renderer.insertFont(BITTER_12_FONT_ID, bitter12FontFamily);
   renderer.insertFont(BITTER_14_FONT_ID, bitter14FontFamily);
   renderer.insertFont(BITTER_16_FONT_ID, bitter16FontFamily);
+  renderer.insertFont(NOTOSANS_10_FONT_ID, notoSans10FontFamily);
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);

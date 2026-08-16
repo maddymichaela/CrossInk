@@ -125,6 +125,8 @@ int getFallbackReaderFontIdForFamily(const CrossPointSettings::FONT_FAMILY famil
   switch (family) {
     case CrossPointSettings::BITTER:
       return BITTER_10_FONT_ID;
+    case CrossPointSettings::NOTOSANS:
+      return NOTOSANS_10_FONT_ID;
     case CrossPointSettings::LEXENDDECA:
     default:
       return LEXENDDECA_10_FONT_ID;
@@ -332,6 +334,8 @@ uint8_t CrossPointSettings::legacyLineSpacingToPercent(const uint8_t legacyValue
         default:
           return 110;
       }
+    case NOTOSANS:
+      return 100;
     case LEXENDDECA:
     default:
       switch (legacyValue) {
@@ -1022,6 +1026,8 @@ int CrossPointSettings::getBuiltInReaderFontId() const {
           return BITTER_16_FONT_ID;
       }
       return getFallbackReaderFontIdForFamily(BITTER);
+    case NOTOSANS:
+      return NOTOSANS_10_FONT_ID;
   }
   return getFallbackReaderFontIdForFamily(static_cast<FONT_FAMILY>(fontFamily));
 }

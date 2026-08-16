@@ -43,6 +43,8 @@ class ButtonNavigator final {
 
   [[nodiscard]] static int nextPageIndex(int currentIndex, int totalItems, int itemsPerPage);
   [[nodiscard]] static int previousPageIndex(int currentIndex, int totalItems, int itemsPerPage);
+  [[nodiscard]] static int nextThreeIndex(int currentIndex, int totalItems);
+  [[nodiscard]] static int previousThreeIndex(int currentIndex, int totalItems);
 
   [[nodiscard]] static Buttons getNextButtons() {
     return {MappedInputManager::Button::Down, MappedInputManager::Button::Right};
