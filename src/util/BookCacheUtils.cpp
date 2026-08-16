@@ -23,6 +23,7 @@ constexpr PreservedCacheFile EPUB_USER_STATE_FILES[] = {
     {"progress.bin.bak", "upload_preserve_progress.bin.bak"},
     {"reader_settings.bin", "upload_preserve_reader_settings.bin"},
     {"dictionary_history.txt", "upload_preserve_dictionary_history.txt"},
+    {"ao3_state.bin", "upload_preserve_ao3_state.bin"},
 };
 
 constexpr PreservedCacheFile PAGE_PROGRESS_FILES[] = {

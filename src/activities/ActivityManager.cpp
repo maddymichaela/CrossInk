@@ -25,6 +25,7 @@
 #include "home/RecentBooksActivity.h"
 #include "home/RecentBooksGridActivity.h"
 #include "network/CrossPointWebServerActivity.h"
+#include "network/AO3SyncActivity.h"
 #include "network/NearbyBookTransferActivity.h"
 #include "network/NearbyStatsSyncActivity.h"
 #include "reader/ReaderActivity.h"
@@ -333,6 +334,16 @@ bool ActivityManager::resumeFileTransferFromNetworkBoot(const uint32_t payload) 
 
 void ActivityManager::goToNearbyStatsSync() {
   replaceActivity(std::make_unique<NearbyStatsSyncActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToAo3Update(std::string bookPath, std::string workId, std::string localDate) {
+  auto activity = makeUniqueNoThrow<AO3SyncActivity>(renderer, mappedInput, std::move(bookPath), std::move(workId),
+                                                      std::move(localDate), false);
+  if (!activity) {
+    LOG_ERR("ACT", "OOM: AO3 update activity");
+    return;
+  }
+  replaceActivity(std::move(activity));
 }
 
 void ActivityManager::goToSettings(const bool dismissOnUpSwipe) {

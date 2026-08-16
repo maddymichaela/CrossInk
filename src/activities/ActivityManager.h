@@ -105,6 +105,7 @@ class ActivityManager {
   void goToFileBrowser(std::string path = {});
   void goToRecentBooks();
   void goToAo3Library(size_t selectorIndex = 0);
+  void goToAo3Update(std::string bookPath, std::string workId, std::string localDate);
   void goToBrowser();
   bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false);
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,

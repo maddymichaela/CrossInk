@@ -46,6 +46,7 @@ class HttpDownloader {
     CancelCallback shouldCancel;
     size_t bufferSize;
     Transport transport;
+    std::string userAgent;
   };
 
   /**

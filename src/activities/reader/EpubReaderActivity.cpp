@@ -2240,6 +2240,7 @@ void EpubReaderActivity::openReaderMenu() {
           !previewActive && epub && Dictionary::exists(epub->getCachePath().c_str()), !BOOKMARKS.getBookmarks().empty(),
           CLIPPINGS.hasClippings(),
           !previewActive && BOOKMARKS.hasBookmarkForPage(bmSpine, bmProgress, bookmarkPageCount), isBookCompleted,
+          epub && !epub->getAo3WorkId().empty(),
           automaticPageTurnActive, getAutoPageTurnIntervalSeconds(),
           SETTINGS.statusBarTimeLeft != CrossPointSettings::STATUS_BAR_TIME_LEFT::TIME_LEFT_HIDE,
           saveReaderOptionsForBook, this, saveGlobalSettingsForBookReader, this, beginGlobalSettingsEditForBookReader,
@@ -3397,6 +3398,23 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       showCompletedFeedback(markCompleted);
       requestUpdate();
       break;
+    }
+    case EpubReaderMenuActivity::MenuAction::CHECK_AO3_UPDATE: {
+      if (!epub || epub->getAo3WorkId().empty()) {
+        requestUpdate();
+        break;
+      }
+      const int page = section ? section->currentPage : nextPageNumber;
+      const int pageCount = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
+      if (!saveProgress(currentSpineIndex, page, pageCount)) {
+        LOG_ERR("AO3U", "Could not save progress before AO3 update check");
+        drawToast(renderer, tr(STR_NEARBY_TRANSFER_PROGRESS_SAVE_FAILED));
+        delay(1200);
+        requestUpdate();
+        break;
+      }
+      activityManager.goToAo3Update(epub->getPath(), epub->getAo3WorkId(), epub->getAo3UpdateDate());
+      return;
     }
     case EpubReaderMenuActivity::MenuAction::SYNC: {
       if (activeFootnotePreview) {

@@ -166,11 +166,13 @@ struct Sink {
   size_t downloaded = 0;
   size_t total = 0;
   bool rangeIgnored = false;
+  std::string userAgent;
 };
 
 void setRequestHeaders(esp_http_client_handle_t client, const std::string& username, const std::string& password,
-                       size_t resumeOffset, bool sendAuthorization) {
-  esp_http_client_set_header(client, "User-Agent", "CrossInk-ESP32-" CROSSINK_VERSION);
+                       size_t resumeOffset, bool sendAuthorization, const std::string& userAgent) {
+  esp_http_client_set_header(client, "User-Agent",
+                             userAgent.empty() ? "CrossInk-ESP32-" CROSSINK_VERSION : userAgent.c_str());
   esp_http_client_set_header(client, "Connection", "close");
   if (resumeOffset > 0) {
     char rangeHeader[40];
@@ -221,7 +223,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     }
     // Replace SecureHttpClient's built-in User-Agent so strict servers receive
     // exactly one header while retaining CrossInk's device/version identity.
-    http.setUserAgent("CrossInk-ESP32-" CROSSINK_VERSION);
+    http.setUserAgent(sink.userAgent.empty() ? "CrossInk-ESP32-" CROSSINK_VERSION : sink.userAgent);
     if (sink.resumeOffset > 0) {
       char rangeHeader[40];
       snprintf(rangeHeader, sizeof(rangeHeader), "bytes=%zu-", sink.resumeOffset);
@@ -353,7 +355,7 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
 
-    setRequestHeaders(client, username, password, sink.resumeOffset, sendAuthorization);
+    setRequestHeaders(client, username, password, sink.resumeOffset, sendAuthorization, sink.userAgent);
 
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
@@ -562,6 +564,7 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
   sink.write = onData;
   sink.progress = std::move(progress);
   sink.shouldCancel = std::move(options.shouldCancel);
+  sink.userAgent = std::move(options.userAgent);
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
   return runGet(url, username, password, sink, bufferSize, options.transport);
 }
@@ -591,6 +594,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   sink.progress = std::move(progress);
   sink.cancelFlag = cancelFlag;
   sink.shouldCancel = std::move(options.shouldCancel);
+  sink.userAgent = std::move(options.userAgent);
   sink.resumeOffset = resumeOffset;
 
   FsFile file;

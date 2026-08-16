@@ -88,6 +88,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "activities/reader/KOReaderSyncActivity.h"
 #include "activities/reader/ReadingStatsUtils.h"
 #include "activities/reader/StatsBackup.h"
+#include "activities/network/AO3SyncActivity.h"
 #include "activities/settings/FontDownloadActivity.h"
 #include "activities/settings/KOReaderAuthActivity.h"
 #include "activities/settings/KOReaderSettingsActivity.h"
@@ -1039,6 +1040,18 @@ void setup() {
           launched = true;
         } else {
           LOG_ERR("MAIN", "OOM: Manage Fonts activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
+                  ESP.getMaxAllocHeap());
+        }
+        break;
+      }
+      case NetworkBootTarget::AO3_UPDATE: {
+        auto ao3Activity = makeUniqueNoThrow<AO3SyncActivity>(renderer, mappedInputManager, std::string{},
+                                                               std::string{}, std::string{}, true);
+        if (ao3Activity) {
+          activityManager.replaceActivity(std::move(ao3Activity));
+          launched = true;
+        } else {
+          LOG_ERR("MAIN", "OOM: AO3 updater after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
                   ESP.getMaxAllocHeap());
         }
         break;
