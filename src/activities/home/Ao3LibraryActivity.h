@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "Ao3LibraryMetadata.h"
+#include "Ao3CompactIndexRecord.h"
 #include "Ao3SortFilterState.h"
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
@@ -21,15 +21,21 @@ class Ao3LibraryActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
 
+  enum class DisplayStatus : uint8_t { Unread, Reading, Waiting, UpdateAvailable, Finished };
+
   struct Row {
-    Ao3LibraryMetadata metadata;
-    std::string fandom;
-    std::string relationship1;
-    std::string relationship2;
+    char title[64] = {};
+    char author[32] = {};
+    char seriesName[32] = {};
+    char fandom[32] = {};
+    uint32_t wordCount = 0;
     uint32_t addedSequence = 0;
-    std::string status;
-    std::string subtitle;
+    uint32_t cacheHash = 0;
+    uint16_t seriesPart = 0;
+    DisplayStatus status = DisplayStatus::Unread;
+    bool present = false;
   };
+  static_assert(sizeof(Row) <= 192, "AO3 library rows must remain compact");
 
  private:
   using UiApp = freeink::ui::FreeInkApp<20, 4>;
@@ -56,7 +62,6 @@ class Ao3LibraryActivity final : public Activity {
 
   void loadRows();
   void sortRows();
-  void rebuildSubtitles();
   void buildListScreen(UiApp::ScreenType& screen);
   void openSelected();
   void cycleSort(int direction);

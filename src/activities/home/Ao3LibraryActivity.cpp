@@ -1,5 +1,6 @@
 #include "Ao3LibraryActivity.h"
 
+#include <Arduino.h>
 #include <Epub.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -29,6 +30,7 @@ namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr char AO3_INDEX_PATH[] = "/.crosspoint/ao3_library_index.bin";
 constexpr uint8_t AO3_INDEX_VERSION = 1;
+constexpr size_t AO3_VIEW_HEAP_RESERVE = 48U * 1024U;
 
 uint32_t ao3PathHash(const char* path) {
   if (!path || path[0] == '\0') return 0;
@@ -50,37 +52,56 @@ std::string wordsLabel(uint32_t wordCount) {
 
 std::string subtitleFor(const Ao3LibraryActivity::Row& row) {
   std::string subtitle;
-  const std::string author = compactField(row.metadata.author);
+  const std::string author = compactField(row.author);
   if (!author.empty()) {
     subtitle += author;
   }
-  if (row.metadata.wordCount > 0) {
+  if (row.wordCount > 0) {
     if (!subtitle.empty()) subtitle += " · ";
-    subtitle += wordsLabel(row.metadata.wordCount);
+    subtitle += wordsLabel(row.wordCount);
   }
-  if (!row.fandom.empty()) {
+  if (row.fandom[0] != '\0') {
     if (!subtitle.empty()) subtitle += " · ";
     subtitle += row.fandom;
   }
   return subtitle;
 }
 
-std::string deriveStatus(const Ao3LibraryMetadata& meta) {
+Ao3LibraryActivity::DisplayStatus deriveStatus(const Ao3LibraryMetadata& meta) {
   const std::string cachePath = Epub::cachePathForFilePath(meta.filepath, "/.crosspoint");
   const Ao3ReadingState ao3State = Ao3ReadingStateStore::load(cachePath);
-  const char* ao3StateLabel = Ao3ReadingStateStore::labelFor(ao3State);
-  if (ao3StateLabel && ao3StateLabel[0] != '\0') {
-    return ao3State == Ao3ReadingState::UpdateAvailable ? "New Chapter" : "Waiting";
+  if (ao3State == Ao3ReadingState::UpdateAvailable) {
+    return Ao3LibraryActivity::DisplayStatus::UpdateAvailable;
+  }
+  if (ao3State == Ao3ReadingState::WaitingForChapter) {
+    return Ao3LibraryActivity::DisplayStatus::Waiting;
   }
 
   const BookReadingStats stats = BookReadingStats::load(cachePath);
   if (stats.isCompleted) {
-    return meta.isCompleted ? "Finished" : "Waiting";
+    return meta.isCompleted ? Ao3LibraryActivity::DisplayStatus::Finished
+                            : Ao3LibraryActivity::DisplayStatus::Waiting;
   }
   if (stats.sessionCount > 0 || stats.totalPagesTurned > 0 || stats.totalReadingSeconds > 0) {
-    return "Reading";
+    return Ao3LibraryActivity::DisplayStatus::Reading;
   }
-  return "Unread";
+  return Ao3LibraryActivity::DisplayStatus::Unread;
+}
+
+const char* statusLabel(const Ao3LibraryActivity::DisplayStatus status) {
+  switch (status) {
+    case Ao3LibraryActivity::DisplayStatus::Reading:
+      return "Reading";
+    case Ao3LibraryActivity::DisplayStatus::Waiting:
+      return "Waiting";
+    case Ao3LibraryActivity::DisplayStatus::UpdateAvailable:
+      return "New Chapter";
+    case Ao3LibraryActivity::DisplayStatus::Finished:
+      return "Finished";
+    case Ao3LibraryActivity::DisplayStatus::Unread:
+    default:
+      return "Unread";
+  }
 }
 
 int compareText(const std::string& a, const std::string& b) {
@@ -106,16 +127,52 @@ bool readIndexRecordCount(HalFile& file, uint16_t& recordCount) {
   return memcmp(magic, "AO3X", 4) == 0 && version == AO3_INDEX_VERSION;
 }
 
-void enrichRowsFromIndex(std::vector<Ao3LibraryActivity::Row>& rows) {
+template <size_t N>
+void copyField(char (&destination)[N], const char* source) {
+  if (!source) return;
+  strncpy(destination, source, N - 1);
+  destination[N - 1] = '\0';
+}
+
+void populateRowFromIndex(Ao3LibraryActivity::Row& row, const CompactIndexRecord& rec) {
+  copyField(row.title, rec.title);
+  copyField(row.author, rec.author);
+  copyField(row.seriesName, rec.seriesName);
+  copyField(row.fandom, rec.fandom);
+  row.wordCount = rec.wordCount;
+  row.addedSequence = rec.addedSequence;
+  row.cacheHash = rec.cacheHash;
+  row.seriesPart = rec.seriesPart;
+}
+
+size_t safeRowCapacity(const size_t desired) {
+  const size_t available = std::min(static_cast<size_t>(ESP.getFreeHeap()),
+                                    static_cast<size_t>(ESP.getMaxAllocHeap()));
+  if (available <= AO3_VIEW_HEAP_RESERVE) return 0;
+  return std::min(desired, (available - AO3_VIEW_HEAP_RESERVE) / sizeof(Ao3LibraryActivity::Row));
+}
+
+bool growRowsForFallback(std::vector<Ao3LibraryActivity::Row>& rows) {
+  if (rows.size() < rows.capacity()) return true;
+
+  const size_t current = rows.capacity();
+  const size_t desired = std::min(static_cast<size_t>(MAX_LIBRARY_BOOKS), current == 0 ? 32U : current * 2U);
+  const size_t safeCapacity = safeRowCapacity(desired);
+  if (safeCapacity <= current) return false;
+  rows.reserve(safeCapacity);
+  return rows.size() < rows.capacity();
+}
+
+bool loadRowsFromIndex(std::vector<Ao3LibraryActivity::Row>& rows) {
   FsFile file;
   if (!Storage.openFileForRead("AO3", AO3_INDEX_PATH, file)) {
-    return;
+    return false;
   }
 
   uint16_t recordCount = 0;
   if (!readIndexRecordCount(file, recordCount)) {
     file.close();
-    return;
+    return false;
   }
 
   uint32_t nextSequence = 0;
@@ -123,27 +180,46 @@ void enrichRowsFromIndex(std::vector<Ao3LibraryActivity::Row>& rows) {
   file.read(reinterpret_cast<uint8_t*>(&nextSequence), sizeof(nextSequence));
   file.read(&reserved, sizeof(reserved));
 
+  size_t liveCount = 0;
   for (uint16_t i = 0; i < recordCount; ++i) {
     CompactIndexRecord rec;
     if (file.read(reinterpret_cast<uint8_t*>(&rec), sizeof(rec)) != sizeof(rec)) {
       break;
     }
-    if (rec.flags & 0x01) {
+    if (!(rec.flags & 0x01)) liveCount++;
+  }
+
+  const size_t rowCapacity = safeRowCapacity(liveCount);
+  rows.reserve(rowCapacity);
+  if (!file.seek(INDEX_HEADER_SIZE)) {
+    file.close();
+    return false;
+  }
+  for (uint16_t i = 0; i < recordCount; ++i) {
+    CompactIndexRecord rec;
+    if (file.read(reinterpret_cast<uint8_t*>(&rec), sizeof(rec)) != sizeof(rec)) break;
+    if (rec.flags & 0x01) continue;
+
+    Ao3LibraryActivity::Row row;
+    populateRowFromIndex(row, rec);
+    if (rows.size() < rowCapacity) {
+      rows.push_back(row);
       continue;
     }
 
-    for (auto& row : rows) {
-      if (ao3PathHash(row.metadata.filepath) != rec.cacheHash) {
-        continue;
-      }
-      row.fandom = compactField(rec.fandom);
-      row.relationship1 = compactField(rec.relationship1);
-      row.relationship2 = compactField(rec.relationship2);
-      row.addedSequence = rec.addedSequence;
-      break;
+    if (rowCapacity > 0) {
+      const auto oldest = std::min_element(rows.begin(), rows.end(), [](const auto& a, const auto& b) {
+        return a.addedSequence < b.addedSequence;
+      });
+      if (oldest != rows.end() && row.addedSequence > oldest->addedSequence) *oldest = row;
     }
   }
   file.close();
+  if (rowCapacity < liveCount) {
+    LOG_INF("AO3L", "Library view limited to %u/%u works by heap budget", static_cast<unsigned>(rowCapacity),
+            static_cast<unsigned>(liveCount));
+  }
+  return true;
 }
 
 const char* sortLabel(SortMode mode) {
@@ -213,22 +289,38 @@ void Ao3LibraryActivity::onExit() {
 
 void Ao3LibraryActivity::loadRows() {
   rows.clear();
-  std::vector<Ao3LibraryMetadata> metadata;
   Ao3Librarian::sanitizeIndex();
-  Ao3Librarian::scanGlobalLibrary(metadata);
-  rows.reserve(metadata.size());
-  for (const auto& meta : metadata) {
-    if (meta.filepath[0] == '\0' || !Storage.exists(meta.filepath)) {
-      continue;
+  loadRowsFromIndex(rows);
+
+  Ao3Librarian::forEachLibraryInfo([this](const Ao3LibraryMetadata& meta) {
+    if (meta.filepath[0] == '\0' || !Storage.exists(meta.filepath)) return;
+
+    const uint32_t cacheHash = ao3PathHash(meta.filepath);
+    auto row = std::find_if(rows.begin(), rows.end(), [cacheHash](const Row& candidate) {
+      return candidate.cacheHash == cacheHash;
+    });
+    if (row == rows.end()) {
+      if (!growRowsForFallback(rows)) return;
+      Row fallback;
+      copyField(fallback.title, meta.title);
+      copyField(fallback.author, meta.author);
+      copyField(fallback.seriesName, meta.seriesName);
+      fallback.wordCount = meta.wordCount;
+      fallback.seriesPart = meta.seriesPart;
+      fallback.cacheHash = cacheHash;
+      rows.push_back(fallback);
+      row = rows.end() - 1;
     }
-    Row row;
-    row.metadata = meta;
-    row.status = deriveStatus(meta);
-    rows.push_back(row);
-  }
-  enrichRowsFromIndex(rows);
+
+    row->present = true;
+    row->status = deriveStatus(meta);
+  });
+
+  rows.erase(std::remove_if(rows.begin(), rows.end(), [](const Row& row) { return !row.present; }), rows.end());
+  LOG_INF("AO3L", "Loaded %u compact row(s), %u bytes/row (free=%u maxAlloc=%u)",
+          static_cast<unsigned>(rows.size()), static_cast<unsigned>(sizeof(Row)), ESP.getFreeHeap(),
+          ESP.getMaxAllocHeap());
   sortRows();
-  rebuildSubtitles();
 }
 
 void Ao3LibraryActivity::sortRows() {
@@ -237,37 +329,30 @@ void Ao3LibraryActivity::sortRows() {
     int cmp = 0;
     switch (sortMode) {
       case SortMode::AUTHOR:
-        cmp = compareText(compactField(a.metadata.author), compactField(b.metadata.author));
+        cmp = compareText(compactField(a.author), compactField(b.author));
         break;
       case SortMode::WORD_COUNT:
-        cmp = (a.metadata.wordCount < b.metadata.wordCount) ? -1 : (a.metadata.wordCount > b.metadata.wordCount ? 1 : 0);
+        cmp = (a.wordCount < b.wordCount) ? -1 : (a.wordCount > b.wordCount ? 1 : 0);
         break;
       case SortMode::DATE_ADDED:
         cmp = (a.addedSequence < b.addedSequence) ? -1 : (a.addedSequence > b.addedSequence ? 1 : 0);
         break;
       case SortMode::SERIES:
-        cmp = compareText(compactField(a.metadata.seriesName), compactField(b.metadata.seriesName));
+        cmp = compareText(compactField(a.seriesName), compactField(b.seriesName));
         if (cmp == 0) {
-          cmp = (a.metadata.seriesPart < b.metadata.seriesPart) ? -1
-                                                               : (a.metadata.seriesPart > b.metadata.seriesPart ? 1 : 0);
+          cmp = (a.seriesPart < b.seriesPart) ? -1 : (a.seriesPart > b.seriesPart ? 1 : 0);
         }
         break;
       case SortMode::ALPHABETIC:
       default:
-        cmp = compareText(compactField(a.metadata.title), compactField(b.metadata.title));
+        cmp = compareText(compactField(a.title), compactField(b.title));
         break;
     }
     if (cmp == 0) {
-      cmp = compareText(compactField(a.metadata.title), compactField(b.metadata.title));
+      cmp = compareText(compactField(a.title), compactField(b.title));
     }
     return ascendingSort ? cmp < 0 : cmp > 0;
   });
-}
-
-void Ao3LibraryActivity::rebuildSubtitles() {
-  for (auto& row : rows) {
-    row.subtitle = subtitleFor(row);
-  }
 }
 
 void Ao3LibraryActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
@@ -347,7 +432,6 @@ void Ao3LibraryActivity::cycleSort(const int direction) {
   sortMode = nextSortMode(sortMode, direction);
   ascending = sortMode == SortMode::ALPHABETIC || sortMode == SortMode::AUTHOR || sortMode == SortMode::SERIES;
   sortRows();
-  rebuildSubtitles();
   if (!rows.empty() && selectorIndex >= rows.size()) selectorIndex = rows.size() - 1;
   topIndex = followListSelection(static_cast<int>(selectorIndex), topIndex, visibleRows, static_cast<int>(rows.size()));
   requestUpdate();
@@ -357,7 +441,14 @@ void Ao3LibraryActivity::openSelected() {
   if (rows.empty() || selectorIndex >= rows.size()) {
     return;
   }
-  onSelectBook(rows[selectorIndex].metadata.filepath);
+
+  Ao3LibraryMetadata metadata;
+  if (!Ao3Librarian::findLibraryInfoByCacheHash(rows[selectorIndex].cacheHash, metadata) ||
+      metadata.filepath[0] == '\0' || !Storage.exists(metadata.filepath)) {
+    LOG_ERR("AO3L", "Could not resolve selected AO3 work (hash %u)", rows[selectorIndex].cacheHash);
+    return;
+  }
+  onSelectBook(metadata.filepath);
 }
 
 void Ao3LibraryActivity::listScreen(UiApp::ScreenType& screen, void* user) {
@@ -377,12 +468,15 @@ void Ao3LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
   }
 
   std::vector<fui::ListItem> items;
+  std::vector<std::string> subtitles;
   items.reserve(rows.size());
+  subtitles.reserve(rows.size());
   for (size_t i = 0; i < rows.size(); ++i) {
+    subtitles.push_back(subtitleFor(rows[i]));
     fui::ListItem item;
-    item.label = rows[i].metadata.title[0] ? rows[i].metadata.title : "(Untitled)";
-    if (!rows[i].subtitle.empty()) item.subtitle = rows[i].subtitle.c_str();
-    if (!rows[i].status.empty()) item.value = rows[i].status.c_str();
+    item.label = rows[i].title[0] ? rows[i].title : "(Untitled)";
+    if (!subtitles.back().empty()) item.subtitle = subtitles.back().c_str();
+    item.value = statusLabel(rows[i].status);
     item.icon = listIconFor(UIIcon::Book, 32);
     item.actionValue = static_cast<int16_t>(i);
     items.push_back(item);

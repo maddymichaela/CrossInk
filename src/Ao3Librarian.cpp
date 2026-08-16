@@ -34,6 +34,10 @@ uint32_t ao3PathHash(const std::string& path) {
   return static_cast<uint32_t>(ZipFile::fnvHash64(path.c_str(), path.size()));
 }
 
+uint32_t ao3PathHash(const char* path) {
+  return path ? static_cast<uint32_t>(ZipFile::fnvHash64(path, strlen(path))) : 0;
+}
+
 bool readIndexHeader(HalFile& file, uint16_t& recordCount, uint32_t* nextSequence = nullptr) {
   char magic[4];
   uint8_t version = 0;
@@ -963,13 +967,26 @@ char Ao3Librarian::mapWarning(const char* s) {
   return '-';
 }
 
-void Ao3Librarian::scanGlobalLibrary(std::vector<Ao3LibraryMetadata>& out) {
-  forEachAo3InfoSidecar([&out](const std::string& infoPath) {
+void Ao3Librarian::forEachLibraryInfo(const std::function<void(const Ao3LibraryMetadata&)>& callback) {
+  if (!callback) return;
+
+  forEachAo3InfoSidecar([&callback](const std::string& infoPath) {
     Ao3LibraryMetadata meta;
     if (readAo3LibraryInfoAtPath(infoPath, meta)) {
-      out.push_back(meta);
+      callback(meta);
     }
   });
+}
+
+bool Ao3Librarian::findLibraryInfoByCacheHash(const uint32_t cacheHash, Ao3LibraryMetadata& meta) {
+  bool found = false;
+  forEachLibraryInfo([&](const Ao3LibraryMetadata& candidate) {
+    if (!found && candidate.filepath[0] != '\0' && ao3PathHash(candidate.filepath) == cacheHash) {
+      meta = candidate;
+      found = true;
+    }
+  });
+  return found;
 }
 
 bool Ao3Librarian::hasAnyAo3Fics() {

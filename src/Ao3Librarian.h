@@ -1,7 +1,7 @@
 #pragma once
 
+#include <functional>
 #include <string>
-#include <vector>
 #include "Ao3LibraryMetadata.h"
 
 #include "Ao3CompactIndexRecord.h"
@@ -42,10 +42,17 @@ class Ao3Librarian {
   static bool getLibraryInfo(const Epub& epub, Ao3LibraryMetadata& meta);
 
   /**
-   * @brief Scans the device cache for all identified AO3 fics.
-   * @param out Vector to populate with metadata.
+   * @brief Streams identified AO3 metadata one sidecar at a time.
+   *
+   * Use this on memory-constrained screens instead of retaining the full
+   * fixed-size metadata structure for every work.
    */
-  static void scanGlobalLibrary(std::vector<Ao3LibraryMetadata>& out);
+  static void forEachLibraryInfo(const std::function<void(const Ao3LibraryMetadata&)>& callback);
+
+  /**
+   * @brief Finds the sidecar associated with a compact index path hash.
+   */
+  static bool findLibraryInfoByCacheHash(uint32_t cacheHash, Ao3LibraryMetadata& meta);
 
   /**
    * @brief Quick check to see if any AO3 library info exists.
