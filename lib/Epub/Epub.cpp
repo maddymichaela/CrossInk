@@ -9,6 +9,7 @@
 #include <Memory.h>
 #include <MemoryBudget.h>
 #include <PngToBmpConverter.h>
+#include <Serialization.h>
 #include <Utf8.h>
 #include <ZipFile.h>
 
@@ -29,6 +30,7 @@ constexpr int kDefaultThumbHeight = 180;
 constexpr char kXLocationsPath[] = "META-INF/x-locations.json";
 constexpr char kXLocationsFormat[] = "x-locations";
 constexpr char kLegacyXLocationsFormat[] = "crossink-locations";
+constexpr char kAo3InfoFile[] = "/ao3-info.bin";
 constexpr size_t kXLocationsMaxBytes = 64 * 1024;
 constexpr uint32_t kDefaultReferenceCharactersPerPage = 1500;
 
@@ -244,6 +246,42 @@ class CoverImageRefScanner final : public Print {
     }
   }
 };
+
+class Ao3PrefaceSniffer final : public Print {
+ public:
+  bool match = false;
+
+  size_t write(uint8_t data) override { return write(&data, 1); }
+
+  size_t write(const uint8_t* buffer, size_t size) override {
+    for (size_t i = 0; i < size && !match; ++i) {
+      consume(static_cast<char>(buffer[i]));
+      if (match) {
+        return i + 1;
+      }
+    }
+    return size;
+  }
+
+ private:
+  static constexpr const char* kWorkUrl = "archiveofourown.org/works/";
+  static constexpr const char* kPostedOriginally = "Posted originally on";
+  static constexpr const char* kArchiveHost = "archiveofourown";
+
+  std::string window;
+
+  void consume(const char c) {
+    if (window.size() >= 256) {
+      window.erase(0, 64);
+    }
+    window.push_back(c);
+
+    if (window.find(kWorkUrl) != std::string::npos ||
+        (window.find(kPostedOriginally) != std::string::npos && window.find(kArchiveHost) != std::string::npos)) {
+      match = true;
+    }
+  }
+};
 }  // namespace
 
 Epub::Epub(std::string filepath, const std::string& cacheDir) : filepath(std::move(filepath)) {
@@ -380,6 +418,10 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
   if (collectCssFiles && !opfParser.cssFiles.empty()) {
     cssFiles = std::move(opfParser.cssFiles);
   }
+
+  bookMetadata.ao3WorkId = opfParser.ao3WorkId;
+  bookMetadata.ao3UpdateDate = opfParser.ao3UpdateDate;
+  bookMetadata.ao3IsCompleted = opfParser.ao3IsCompleted;
 
   return true;
 }
@@ -903,6 +945,84 @@ const std::string& Epub::getLanguage() const {
 
   return bookMetadataCache->coreMetadata.language;
 }
+
+bool Epub::hasAo3Info() const {
+  return Storage.exists((cachePath + kAo3InfoFile).c_str()) ||
+         (bookMetadataCache && bookMetadataCache->isLoaded() && !bookMetadataCache->coreMetadata.ao3WorkId.empty());
+}
+
+std::string Epub::getAo3WorkId() const {
+  HalFile file;
+  if (Storage.openFileForRead("EBP", cachePath + kAo3InfoFile, file)) {
+    bool completed = false;
+    std::string workId;
+    const bool readOk = serialization::tryReadPod(file, completed) && serialization::tryReadString(file, workId);
+    file.close();
+    if (readOk && !workId.empty()) {
+      return workId;
+    }
+  }
+
+  return bookMetadataCache && bookMetadataCache->isLoaded() ? bookMetadataCache->coreMetadata.ao3WorkId : "";
+}
+
+std::string Epub::getAo3UpdateDate() const {
+  HalFile file;
+  if (Storage.openFileForRead("EBP", cachePath + kAo3InfoFile, file)) {
+    bool completed = false;
+    std::string workId;
+    std::string updateDate;
+    const bool readOk = serialization::tryReadPod(file, completed) && serialization::tryReadString(file, workId) &&
+                        serialization::tryReadString(file, updateDate);
+    file.close();
+    if (readOk && !updateDate.empty()) {
+      return updateDate;
+    }
+  }
+
+  return bookMetadataCache && bookMetadataCache->isLoaded() ? bookMetadataCache->coreMetadata.ao3UpdateDate : "";
+}
+
+bool Epub::isAo3Completed() const {
+  HalFile file;
+  if (Storage.openFileForRead("EBP", cachePath + kAo3InfoFile, file)) {
+    bool completed = false;
+    const bool readOk = serialization::tryReadPod(file, completed);
+    file.close();
+    if (readOk) {
+      return completed;
+    }
+  }
+
+  return bookMetadataCache && bookMetadataCache->isLoaded() && bookMetadataCache->coreMetadata.ao3IsCompleted;
+}
+
+void Epub::saveAo3Info(const std::string& workId, const std::string& updateDate, const bool completed) const {
+  if (workId.empty()) {
+    return;
+  }
+
+  HalFile file;
+  if (!Storage.openFileForWrite("EBP", cachePath + kAo3InfoFile, file)) {
+    return;
+  }
+
+  serialization::writePod(file, completed);
+  serialization::writeString(file, workId);
+  serialization::writeString(file, updateDate);
+  file.close();
+}
+
+bool Epub::sniffNativeAo3Preface() const {
+  if (!bookMetadataCache || !bookMetadataCache->isLoaded() || getSpineItemsCount() <= 0) {
+    return false;
+  }
+
+  Ao3PrefaceSniffer sniffer;
+  return readItemContentsToStream(getSpineItem(0).href, sniffer, 1024, true) && sniffer.match;
+}
+
+bool Epub::isAo3Work() const { return hasAo3Info() || sniffNativeAo3Preface(); }
 
 bool Epub::hasCoverImage() const {
   return bookMetadataCache && bookMetadataCache->isLoaded() && !bookMetadataCache->coreMetadata.coverItemHref.empty();
