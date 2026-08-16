@@ -36,6 +36,7 @@ class HomeActivity final : public Activity {
   bool hasReadingStats = false;
   bool hasBookmarks = false;
   bool hasClippings = false;
+  bool hasAo3Fics = false;
   bool hasOpdsServers = false;
   bool minimalMenuOpen = false;
   bool minimalSuppressInitialFrontRelease = false;
@@ -79,6 +80,7 @@ class HomeActivity final : public Activity {
   void onFileBrowserOpen();
   void onContinueReading();
   void onRecentsOpen();
+  void onAo3LibraryOpen();
   void onSettingsOpen();
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
