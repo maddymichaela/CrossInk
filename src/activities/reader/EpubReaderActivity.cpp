@@ -2371,12 +2371,11 @@ void EpubReaderActivity::loop() {
   if (goHomeAfterBuildCancel.load(std::memory_order_relaxed) && !RenderLock::peek()) {
     goHomeAfterBuildCancel.store(false, std::memory_order_relaxed);
     sectionBuildCancelRequested.store(false, std::memory_order_relaxed);
-    onGoHome();
+    activityManager.returnFromReader();
     return;
   }
 
-  if (RenderLock::peek() && !touch.prev && !touch.next && mappedInput.wasReleased(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
+  if (RenderLock::peek() && !touch.prev && !touch.next && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     sectionBuildCancelRequested.store(true, std::memory_order_relaxed);
     goHomeAfterBuildCancel.store(true, std::memory_order_relaxed);
     automaticPageTurnActive = false;
@@ -2675,14 +2674,15 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  // Short press BACK goes directly to home (or restores position if viewing footnote)
-  if (!touch.prev && !touch.next && mappedInput.wasReleased(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
+  // Any Back release not already consumed by a detected long press leaves the reader.
+  // Rendering can delay the loop beyond the hold threshold, so requiring a short
+  // release here could otherwise drop the only exit action.
+  if (!touch.prev && !touch.next && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (footnoteDepth > 0) {
       restoreSavedPosition();
       return;
     }
-    onGoHome();
+    activityManager.returnFromReader();
     return;
   }
 

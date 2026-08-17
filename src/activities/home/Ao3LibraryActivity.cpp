@@ -591,7 +591,7 @@ void Ao3LibraryActivity::openSelected() {
     LOG_ERR("AO3L", "Could not resolve selected AO3 work (hash %u)", viewEntries[selectorIndex].cacheHash);
     return;
   }
-  onSelectBook(pageMetadata[slot].filepath);
+  activityManager.goToReaderFromAo3(pageMetadata[slot].filepath, selectorIndex);
 }
 
 void Ao3LibraryActivity::loop() {

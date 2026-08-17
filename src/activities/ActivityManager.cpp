@@ -410,9 +410,30 @@ void ActivityManager::goToReader(std::string path, const bool suppressBackReleas
                                  const bool cleanImageBaseOnEntry) {
   // OPDS credentials are unrelated to local reading and may contain several
   // heap-backed strings. Home reloads them lazily when it becomes active.
+  readerReturnTarget = ReaderReturnTarget::Home;
+  readerReturnAo3Index = 0;
   OPDS_STORE.release();
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), suppressBackRelease,
                                                    allowFastInitialRefresh, cleanImageBaseOnEntry));
+}
+
+void ActivityManager::goToReaderFromAo3(std::string path, const size_t selectorIndex) {
+  readerReturnTarget = ReaderReturnTarget::Ao3Library;
+  readerReturnAo3Index = selectorIndex;
+  OPDS_STORE.release();
+  replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), false, false, false));
+}
+
+void ActivityManager::returnFromReader() {
+  const ReaderReturnTarget target = readerReturnTarget;
+  const size_t ao3Index = readerReturnAo3Index;
+  readerReturnTarget = ReaderReturnTarget::Home;
+  readerReturnAo3Index = 0;
+  if (target == ReaderReturnTarget::Ao3Library) {
+    goToAo3Library(ao3Index);
+    return;
+  }
+  goHome();
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {

@@ -125,6 +125,7 @@ static bool powerButtonReleasedSinceWake = false;
 namespace {
 constexpr unsigned long X4PRO_POWER_DOUBLE_CLICK_MS = 500;
 constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 400;
+constexpr unsigned long EMERGENCY_POWER_SLEEP_HOLD_MS = 2000;
 }  // namespace
 
 static void logBootHeap(const char* stage) {
@@ -1189,6 +1190,15 @@ void loop() {
   // X4 Pro-only frontlight shortcut. Consume the second release so a configured
   // short-power action does not also run for the click that toggled the light.
   if (handleX4ProFrontlightDoubleClick()) {
+    return;
+  }
+
+  // Keep a hardware escape hatch even when a persisted shortcut setting is
+  // invalid or release handling is suppressed. This is deliberately longer
+  // than the configurable shortcut threshold, and never overlaps the screenshot combo.
+  if (powerButtonReleasedSinceWake && millis() >= allowSleepAt && gpio.isPressed(HalGPIO::BTN_POWER) &&
+      !gpio.isPressed(HalGPIO::BTN_DOWN) && gpio.getHeldTime() >= EMERGENCY_POWER_SLEEP_HOLD_MS) {
+    enterDeepSleep();
     return;
   }
 

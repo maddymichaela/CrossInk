@@ -174,6 +174,8 @@ void ReaderActivity::onEnter() {
 
   if (suppressInitialBackRelease) {
     mappedInput.suppressNextBackRelease();
+  } else {
+    mappedInput.clearBackReleaseSuppression();
   }
 
   if (initialBookPath.empty()) {

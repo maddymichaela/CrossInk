@@ -1,3 +1,9 @@
+## Unreleased
+
+### Fixed
+
+- Back reliably leaves an EPUB even when a long hold was not observed during rendering, AO3 books return to their library row, and a two-second Power hold always enters sleep.
+
 ## [v1.5.0] - 2026-08-08
 
 ### Added
