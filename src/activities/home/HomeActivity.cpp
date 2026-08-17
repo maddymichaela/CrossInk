@@ -623,9 +623,7 @@ int HomeActivity::getMenuItemCount() const {
   if (hasBookmarks || hasClippings) {
     count++;
   }
-  if (hasAo3Fics) {
-    count++;
-  }
+  count++;
   return count;
 }
 
@@ -875,11 +873,12 @@ void HomeActivity::onEnter() {
   hasBookmarks = BookmarkStore::hasAnyBookmarks();
   hasClippings = ClippingStore::hasAnyClippings();
   const Ao3LibrarySummary ao3 = Ao3Librarian::getLibrarySummary();
-  hasAo3Fics = ao3.total > 0;
   if (ao3.updatesAvailable > 0) {
     snprintf(ao3MenuLabel, sizeof(ao3MenuLabel), "AO3 Library (%u, %u new)", ao3.total, ao3.updatesAvailable);
-  } else {
+  } else if (ao3.total > 0) {
     snprintf(ao3MenuLabel, sizeof(ao3MenuLabel), "AO3 Library (%u)", ao3.total);
+  } else {
+    snprintf(ao3MenuLabel, sizeof(ao3MenuLabel), "AO3 Library");
   }
 
   selectorIndex = 0;
@@ -926,7 +925,7 @@ void HomeActivity::onEnter() {
   if (initialMenuItem != HomeMenuItem::NONE) {
     const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();
     const auto menuItems = buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                                                        hasAo3Fics ? ao3MenuLabel : nullptr, includeContinueReading);
+                                                        ao3MenuLabel, includeContinueReading);
     const int menuIndex = findMenuActionIndex(menuItems, homeActionForInitialMenuItem(initialMenuItem));
     if (menuIndex >= 0) {
       selectorIndex = getHomeMenuSelectionOffset(recentBooks) + menuIndex;
@@ -935,7 +934,7 @@ void HomeActivity::onEnter() {
 
   if (isCarouselTheme &&
       hasValidCarouselDiskCache(recentBooks, renderer, hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                                hasAo3Fics ? ao3MenuLabel : nullptr)) {
+                                ao3MenuLabel)) {
     preRenderCarouselFrames(false);
   }
 
@@ -1157,7 +1156,7 @@ void HomeActivity::renderCarouselFrameToCurrentBuffer(int bookIdx, BookReadingSt
                                     (showAllDevicesStats && hasAnyGlobalStats(allDevicesGlobalStats));
   const auto menuItems =
       buildHomeMenuItems(hasOpdsServers, frameHasReadingStats, hasBookmarks, hasClippings,
-                         hasAo3Fics ? ao3MenuLabel : nullptr);
+                         ao3MenuLabel);
   GUI.drawButtonMenu(
       renderer,
       Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.verticalSpacing, pageWidth,
@@ -1344,7 +1343,7 @@ bool HomeActivity::preRenderCarouselFrames(bool showProgressPopup) {
   std::string newKey;
   uint64_t newKeyHash = 0;
   buildCarouselCacheKey(recentBooks, hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                        hasAo3Fics ? ao3MenuLabel : nullptr, newKey, newKeyHash);
+                        ao3MenuLabel, newKey, newKeyHash);
 
   // Cache hit: same books in same order — reuse without any SD reads
   if (newKey == gCarouselCache.key && gCarouselCache.frameCount > 0) {
@@ -1445,7 +1444,7 @@ void HomeActivity::loop() {
 
     if (minimalMenuOpen) {
       const auto menuItems = buildMinimalMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                                                   hasAo3Fics ? ao3MenuLabel : nullptr);
+                                                   ao3MenuLabel);
       const int menuCount = static_cast<int>(menuItems.size());
       if (menuCount <= 0) {
         minimalMenuOpen = false;
@@ -1717,7 +1716,7 @@ void HomeActivity::loop() {
 
     auto menuItems =
         buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                                     hasAo3Fics ? ao3MenuLabel : nullptr,
+                                     ao3MenuLabel,
                                      metrics.homeContinueReadingInMenu && !recentBooks.empty());
     const int menuSelectedIndex = selectorIndex - getHomeMenuSelectionOffset(recentBooks);
     if (menuSelectedIndex < 0 || menuSelectedIndex >= static_cast<int>(menuItems.size())) {
@@ -1746,7 +1745,7 @@ void HomeActivity::loop() {
     const int menuItemCount =
         static_cast<int>(
             buildHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                               hasAo3Fics ? ao3MenuLabel : nullptr)
+                               ao3MenuLabel)
                 .size());
     const bool inCarouselRow = (selectorIndex < bookCount);
     const int menuIdx = inCarouselRow ? 0 : (selectorIndex - bookCount);
@@ -1866,7 +1865,7 @@ void HomeActivity::loop() {
   } else {
     const auto& metrics = UITheme::getInstance().getMetrics();
     const auto menuItems = buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                                                        hasAo3Fics ? ao3MenuLabel : nullptr,
+                                                        ao3MenuLabel,
                                                         metrics.homeContinueReadingInMenu && !recentBooks.empty());
     auto handleTouch = [&](const bool activate) {
       int touchedBookIndex = -1;
@@ -1948,7 +1947,7 @@ void HomeActivity::render(RenderLock&&) {
     if (minimalMenuOpen) {
       GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding}, nullptr);
       const auto menuItems = buildMinimalMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                                                   hasAo3Fics ? ao3MenuLabel : nullptr);
+                                                   ao3MenuLabel);
       GUI.drawButtonMenu(
           renderer, Rect{0, metrics.homeTopPadding, pageWidth, pageHeight - metrics.homeTopPadding},
           static_cast<int>(menuItems.size()), minimalMenuIndex,
@@ -2026,7 +2025,7 @@ void HomeActivity::render(RenderLock&&) {
       GUI.drawCarouselBorder(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
                              recentBooks, centerIdx, inCarouselRow);
       const auto menuItems = buildHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                                                hasAo3Fics ? ao3MenuLabel : nullptr);
+                                                ao3MenuLabel);
       if (static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL) {
         static_cast<const LyraCarouselTheme&>(GUI).registerButtonMenuTouchTargets(renderer,
                                                                                   static_cast<int>(menuItems.size()));
@@ -2062,7 +2061,7 @@ void HomeActivity::render(RenderLock&&) {
 
   auto menuItems =
       buildSelectableHomeMenuItems(hasOpdsServers, hasReadingStats, hasBookmarks, hasClippings,
-                                   hasAo3Fics ? ao3MenuLabel : nullptr,
+                                   ao3MenuLabel,
                                    metrics.homeContinueReadingInMenu && !recentBooks.empty());
   int homeCoverTileHeight = metrics.homeCoverTileHeight;
   if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::CLASSIC) {
