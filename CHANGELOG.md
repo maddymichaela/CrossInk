@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- AO3 indexing now recognizes Kobo-converted native AO3 EPUBs by checking the first three spine items and falling back to the preserved AO3 publisher metadata.
 - AO3 Library now explains how to begin indexing, uses a white full-screen management view, visibly saves the selected AO3 folder, scans only that folder, and allows Back to cancel active indexing.
 - AO3 Library remains available from Home when its index is empty, allowing first-time setup and reindexing.
 - Back reliably leaves an EPUB even when a long hold was not observed during rendering, AO3 books return to their library row, and a two-second Power hold always enters sleep.

@@ -924,29 +924,7 @@ bool Ao3Librarian::parseTitlePage(const Epub& epub,
 }
 
 bool Ao3Librarian::sniffNativeAo3Preface(const Epub& epub) {
-  if (epub.getSpineItemsCount() <= 0) return false;
-
-  struct PrefaceSniffer final : public Print {
-    char buf[2400];
-    size_t n = 0;
-    bool match = false;
-    size_t write(uint8_t b) override {
-      if (match) return 1;
-      if (n + 1 < sizeof(buf)) {
-        buf[n++] = static_cast<char>(b);
-        buf[n] = '\0';
-      }
-      if (n >= 40 && !match) {
-        if (strstr(buf, "archiveofourown.org/works/")) match = true;
-        else if (strstr(buf, "Posted originally on") && strstr(buf, "archiveofourown")) match = true;
-      }
-      return 1;
-    }
-  };
-
-  auto sniffer = std::unique_ptr<PrefaceSniffer>(new PrefaceSniffer());
-  epub.readItemContentsToStream(epub.getSpineItem(0).href, *sniffer, 8192);
-  return sniffer->match;
+  return epub.sniffNativeAo3Preface();
 }
 
 char Ao3Librarian::mapRating(const char* s) {

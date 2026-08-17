@@ -34,6 +34,13 @@ bool readIndexHeader(HalFile& file, uint16_t& recordCount) {
          file.read(reinterpret_cast<uint8_t*>(&sequence), 4) == 4 && file.read(&reserved, 1) == 1 &&
          memcmp(magic, "AO3X", 4) == 0 && version == AO3_INDEX_VERSION && recordCount <= MAX_LIBRARY_BOOKS;
 }
+
+bool isAo3Publisher(std::string publisher) {
+  std::transform(publisher.begin(), publisher.end(), publisher.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return publisher == "archive of our own" || publisher.find("archiveofourown") != std::string::npos;
+}
 }  // namespace
 
 Ao3IndexActivity::Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -205,7 +212,8 @@ void Ao3IndexActivity::indexNextBook() {
 
   Epub epub(path, "/.crosspoint");
   const bool loaded = epub.load(true, true, Epub::XLocationLoadMode::Skip);
-  const bool ao3 = loaded && (epub.hasAo3Info() || Ao3Librarian::sniffNativeAo3Preface(epub));
+  bool ao3 = loaded && (epub.hasAo3Info() || Ao3Librarian::sniffNativeAo3Preface(epub));
+  if (loaded && !ao3) ao3 = isAo3Publisher(epub.sniffPublisher());
   if (ao3 && Ao3Librarian::scrape(epub, true)) {
     ++indexedCount;
   } else {

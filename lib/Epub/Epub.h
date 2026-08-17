@@ -129,6 +129,7 @@ class Epub {
   std::string getAo3UpdateDate() const;
   bool isAo3Completed() const;
   void saveAo3Info(const std::string& workId, const std::string& updateDate, bool completed) const;
+  std::string sniffPublisher() const;
   bool sniffNativeAo3Preface() const;
   bool isAo3Work() const;
   // True when parsed EPUB metadata identifies a cover image. Requires load().

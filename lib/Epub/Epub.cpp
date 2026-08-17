@@ -14,6 +14,7 @@
 #include <ZipFile.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -279,6 +280,49 @@ class Ao3PrefaceSniffer final : public Print {
     if (window.find(kWorkUrl) != std::string::npos ||
         (window.find(kPostedOriginally) != std::string::npos && window.find(kArchiveHost) != std::string::npos)) {
       match = true;
+    }
+  }
+};
+
+class PublisherSniffer final : public Print {
+ public:
+  std::string publisher;
+  bool complete = false;
+
+  size_t write(uint8_t data) override { return write(&data, 1); }
+
+  size_t write(const uint8_t* buffer, size_t size) override {
+    size_t consumed = 0;
+    while (consumed < size && !complete) {
+      consume(static_cast<char>(buffer[consumed++]));
+    }
+    return consumed;
+  }
+
+ private:
+  enum class State : uint8_t { FindElement, FindContent, ReadContent };
+
+  State state = State::FindElement;
+  std::string window;
+
+  void consume(const char c) {
+    if (state == State::FindElement) {
+      window.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+      if (window.size() > 32) window.erase(0, 8);
+      if (window.find("<dc:publisher") != std::string::npos) {
+        state = State::FindContent;
+        window.clear();
+      }
+      return;
+    }
+    if (state == State::FindContent) {
+      if (c == '>') state = State::ReadContent;
+      return;
+    }
+    if (c == '<') {
+      complete = true;
+    } else if (publisher.size() < 96) {
+      publisher.push_back(c);
     }
   }
 };
@@ -1013,13 +1057,29 @@ void Epub::saveAo3Info(const std::string& workId, const std::string& updateDate,
   file.close();
 }
 
+std::string Epub::sniffPublisher() const {
+  std::string opfPath;
+  if (!findContentOpfFile(&opfPath)) return {};
+
+  PublisherSniffer sniffer;
+  if (!readItemContentsToStream(opfPath, sniffer, 512, true)) return {};
+  const size_t first = sniffer.publisher.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) return {};
+  const size_t last = sniffer.publisher.find_last_not_of(" \t\r\n");
+  return sniffer.publisher.substr(first, last - first + 1);
+}
+
 bool Epub::sniffNativeAo3Preface() const {
   if (!bookMetadataCache || !bookMetadataCache->isLoaded() || getSpineItemsCount() <= 0) {
     return false;
   }
 
-  Ao3PrefaceSniffer sniffer;
-  return readItemContentsToStream(getSpineItem(0).href, sniffer, 1024, true) && sniffer.match;
+  const int itemsToCheck = std::min(3, getSpineItemsCount());
+  for (int i = 0; i < itemsToCheck; ++i) {
+    Ao3PrefaceSniffer sniffer;
+    if (readItemContentsToStream(getSpineItem(i).href, sniffer, 1024, true) && sniffer.match) return true;
+  }
+  return false;
 }
 
 bool Epub::isAo3Work() const { return hasAo3Info() || sniffNativeAo3Preface(); }
