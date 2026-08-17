@@ -20,8 +20,8 @@
 #include "Ao3DisplayStatus.h"
 #include "MappedInputManager.h"
 #include "activities/ActivityResult.h"
+#include "activities/home/Ao3FolderPickerActivity.h"
 #include "activities/home/Ao3IndexActivity.h"
-#include "activities/home/FileBrowserActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/TouchRegistry.h"
 #include "components/UITheme.h"
@@ -219,6 +219,7 @@ void Ao3LibraryActivity::loadSettings() {
   JsonDocument document;
   if (deserializeJson(document, json)) return;
   ao3Folder = document["ao3Folder"] | "";
+  if (ao3Folder == "/") ao3Folder.clear();
   batchSize = document["batchSize"] | 10;
   if (batchSize != 10 && batchSize != 15 && batchSize != 20) batchSize = 10;
   filterMode = (document["filterMode"] | 0) == 1 ? FilterMode::FolderTree : FilterMode::Automatic;
@@ -518,8 +519,7 @@ void Ao3LibraryActivity::activateFilterRow() {
 void Ao3LibraryActivity::activateManageRow() {
   if (manageRowIndex == 0) {
     if (ao3Folder.empty()) {
-      manageRowIndex = 1;
-      requestUpdate(true);
+      chooseAo3Folder();
       return;
     }
     viewEntries.clear();
@@ -534,25 +534,7 @@ void Ao3LibraryActivity::activateManageRow() {
                              requestUpdate(true);
                            });
   } else if (manageRowIndex == 1) {
-    const std::string startPath = ao3Folder.empty() ? "/" : ao3Folder;
-    startActivityForResult(
-        std::make_unique<FileBrowserActivity>(renderer, mappedInput, startPath, FileBrowserActivity::Mode::PickDirectory),
-        [this](const ActivityResult& result) {
-          if (!result.isCancelled) {
-            if (const auto* path = std::get_if<FilePathResult>(&result.data)) {
-              ao3Folder = path->path;
-              saveSettings();
-              if (filterMode == FilterMode::FolderTree) {
-                activeState.fandom[0] = '\0';
-                activeState.relationship[0] = '\0';
-                activeState.relationshipNoneOnly = false;
-                saveSortFilterState();
-                loadViewEntries();
-              }
-            }
-          }
-          requestUpdate(true);
-        });
+    chooseAo3Folder();
   } else if (manageRowIndex == 2) {
     batchSize = batchSize == 10 ? 15 : (batchSize == 15 ? 20 : 10);
     saveSettings();
@@ -578,6 +560,27 @@ void Ao3LibraryActivity::activateManageRow() {
     loadPageCache(static_cast<int>(selectorIndex) / PAGE_SIZE);
     requestUpdate(true);
   }
+}
+
+void Ao3LibraryActivity::chooseAo3Folder() {
+  startActivityForResult(std::make_unique<Ao3FolderPickerActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) {
+                           if (!result.isCancelled) {
+                             if (const auto* path = std::get_if<FilePathResult>(&result.data);
+                                 path && path->path != "/" && Storage.exists(path->path.c_str())) {
+                               ao3Folder = path->path;
+                               saveSettings();
+                               if (filterMode == FilterMode::FolderTree) {
+                                 activeState.fandom[0] = '\0';
+                                 activeState.relationship[0] = '\0';
+                                 activeState.relationshipNoneOnly = false;
+                                 saveSortFilterState();
+                                 loadViewEntries();
+                               }
+                             }
+                           }
+                           requestUpdate(true);
+                         });
 }
 
 void Ao3LibraryActivity::openSelected() {
@@ -749,6 +752,10 @@ void Ao3LibraryActivity::render(RenderLock&& lock) {
     renderPicker();
     return;
   }
+  if (screenState == ScreenState::ManagePanel) {
+    renderManagePanel();
+    return;
+  }
   renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
@@ -767,7 +774,7 @@ void Ao3LibraryActivity::render(RenderLock&& lock) {
   if (viewEntries.empty()) {
     renderer.drawCenteredText(UI_10_FONT_ID, renderer.getScreenHeight() / 2 - 12, "No AO3 books indexed yet.");
     renderer.drawCenteredText(SMALL_FONT_ID, renderer.getScreenHeight() / 2 + 16,
-                              "Index an AO3 EPUB from its book actions.");
+                              "Press and hold Up to choose a folder and index.");
   } else {
     const int page = static_cast<int>(selectorIndex) / PAGE_SIZE;
     loadPageCache(page);
@@ -800,8 +807,6 @@ void Ao3LibraryActivity::render(RenderLock&& lock) {
   }
 
   if (screenState == ScreenState::FilterPanel) renderFilterOverlay();
-  if (screenState == ScreenState::ManagePanel) renderManagePanel();
-
   const auto labels = screenState == ScreenState::Library
                           ? mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT))
                           : mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -897,36 +902,37 @@ void Ao3LibraryActivity::renderPicker() {
 
 void Ao3LibraryActivity::renderManagePanel() {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int panelHeight = 350;
-  const int panelY = renderer.getScreenHeight() - metrics.buttonHintsHeight - panelHeight;
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  renderer.clearScreen(0xFF);
+  const Rect header{0, metrics.topPadding, pageWidth, metrics.headerHeight};
+  GUI.drawHeader(renderer, header, "Manage AO3 Library");
   const int margin = 20;
-  renderer.fillRect(0, panelY, renderer.getScreenWidth(), panelHeight, White);
-  renderer.fillRect(0, panelY, renderer.getScreenWidth(), 5, Black);
-  renderer.drawText(UI_12_FONT_ID, margin + 8, panelY + 20, "Manage AO3 Library", true, EpdFontFamily::BOLD);
-
   const char* labels[5] = {"Index New Books", "AO3 Folder", "Index Batch Size", "Filter Mode", "Library Cleanup"};
-  const std::string folderLabel = ao3Folder.empty() ? "Not Set" : ao3Folder.substr(ao3Folder.find_last_of('/') + 1);
+  const std::string folderLabel = ao3Folder.empty() ? "Not set - select before indexing" : ao3Folder;
   char batchLabel[12];
   snprintf(batchLabel, sizeof(batchLabel), "%d", batchSize);
   const char* values[5] = {"", folderLabel.c_str(), batchLabel,
                            filterMode == FilterMode::Automatic ? "Automatic" : "Folder Tree", ""};
-  const int firstY = panelY + 62;
-  const int rowHeight = 54;
+  const int contentTop = header.y + header.height + metrics.verticalSpacing;
+  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  const int rowHeight = contentHeight / 5;
   for (int row = 0; row < 5; ++row) {
-    const int y = firstY + row * rowHeight;
+    const int y = contentTop + row * rowHeight;
     if (row == manageRowIndex) {
-      renderer.fillRoundedRect(margin, y - 6, renderer.getScreenWidth() - margin * 2, 40, 6, LightGray);
+      renderer.fillRoundedRect(margin, y + 2, pageWidth - margin * 2, rowHeight - 5, 6, LightGray);
     }
-    renderer.drawText(UI_10_FONT_ID, margin + 10, y, labels[row], true,
+    renderer.drawText(UI_10_FONT_ID, margin + 10, y + 10, labels[row], true,
                       row == manageRowIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     if (values[row][0]) {
-      std::string value = values[row];
-      if (value.length() > 18) value = value.substr(0, 16) + "..";
-      renderer.drawText(UI_10_FONT_ID,
-                        renderer.getScreenWidth() - margin - 10 - renderer.getTextWidth(UI_10_FONT_ID, value.c_str()),
-                        y, value.c_str());
+      const std::string value = truncatedToFit(renderer, values[row], SMALL_FONT_ID, pageWidth - margin * 2 - 20,
+                                                EpdFontFamily::REGULAR);
+      renderer.drawText(SMALL_FONT_ID, margin + 10, y + 38, value.c_str(), true);
     }
   }
+  const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4);
+  renderer.displayBuffer();
 }
 
 void Ao3LibraryActivity::renderEntry(RenderLock& lock, const int y, const ViewEntry& entry,

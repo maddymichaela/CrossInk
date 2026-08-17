@@ -40,7 +40,9 @@ Ao3IndexActivity::Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& ma
                                    std::string scanRoot, const int batchSize)
     : Activity("Ao3Index", renderer, mappedInput),
       scanRoot(std::move(scanRoot)),
-      batchSize(std::clamp(batchSize, 1, 20)) {}
+      batchSize(std::clamp(batchSize, 1, 20)) {
+  while (this->scanRoot.length() > 1 && this->scanRoot.back() == '/') this->scanRoot.pop_back();
+}
 
 uint32_t Ao3IndexActivity::pathHash(const std::string& path) {
   return static_cast<uint32_t>(ZipFile::fnvHash64(path.c_str(), path.size()));
@@ -85,13 +87,14 @@ void Ao3IndexActivity::onEnter() {
   unindexedCount = indexedCount = failedCount = currentBook = 0;
   pendingBooks.clear();
   attemptedHashes.clear();
+  directories.clear();
   buildIndexedHashes();
   if (indexedHashes.size() >= MAX_LIBRARY_BOOKS) {
     state = State::Error;
     errorMessage = "AO3 library is full (400 works).";
-  } else if (scanRoot.empty() || !Storage.exists(scanRoot.c_str())) {
+  } else if (scanRoot.empty() || scanRoot == "/" || !Storage.exists(scanRoot.c_str())) {
     state = State::Error;
-    errorMessage = "The configured AO3 folder was not found.";
+    errorMessage = "Choose a dedicated AO3 folder before indexing.";
   } else {
     directories.push_back({scanRoot, 0});
   }
@@ -214,11 +217,14 @@ void Ao3IndexActivity::indexNextBook() {
 }
 
 void Ao3IndexActivity::loop() {
+  if ((state == State::Discovering || state == State::Indexing) &&
+      mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    directories.clear();
+    pendingBooks.clear();
+    finish();
+    return;
+  }
   if (state == State::Discovering) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      finish();
-      return;
-    }
     discoverNextDirectory();
     return;
   }
@@ -257,7 +263,7 @@ void Ao3IndexActivity::render(RenderLock&&) {
   char secondary[128] = {};
   switch (state) {
     case State::Discovering:
-      snprintf(primary, sizeof(primary), "Scanning AO3 folder...");
+      snprintf(primary, sizeof(primary), "Scanning %.70s", scanRoot.c_str());
       snprintf(secondary, sizeof(secondary), "%u new EPUB%s found", static_cast<unsigned>(unindexedCount),
                unindexedCount == 1 ? "" : "s");
       break;

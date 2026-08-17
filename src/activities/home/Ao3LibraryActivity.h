@@ -70,6 +70,7 @@ class Ao3LibraryActivity final : public Activity {
   void applyPendingFilter();
   void activateFilterRow();
   void activateManageRow();
+  void chooseAo3Folder();
   void renderFilterOverlay();
   void renderPicker();
   void renderManagePanel();
