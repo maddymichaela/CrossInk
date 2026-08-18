@@ -1,4 +1,5 @@
 #include "Ao3Librarian.h"
+#include "Ao3HtmlMetadataParser.h"
 #include "Ao3ReadingState.h"
 #include <memory>
 #include <Epub.h>
@@ -110,7 +111,7 @@ void forEachAo3InfoSidecar(Callback callback) {
 class HtmlScraper : public Print {
  public:
   Ao3LibraryMetadata& meta;
-  char buffer[1024];
+  char buffer[2048];
   size_t bufferSize = 0;
   bool inSummary = false;
   bool inTag = false;
@@ -261,10 +262,10 @@ class HtmlScraper : public Print {
       buffer[bufferSize] = 0;
     }
 
-    if (bufferSize > 800) {
+    if (bufferSize > 1600) {
       processBuffer();
-      int overlap = bufferSize - 400;
-      memmove(buffer, buffer + 400, overlap);
+      const int overlap = bufferSize - 800;
+      memmove(buffer, buffer + 800, overlap);
       bufferSize = overlap;
       buffer[bufferSize] = 0;
       yield();
@@ -502,31 +503,13 @@ class HtmlScraper : public Print {
   }
 
   void tryExtractNativeSummary() {
-    const char* mark = strstr(buffer, ">Summary</");
-    if (!mark) mark = strstr(buffer, ">Summary<");
-    if (!mark) return;
-    const char* bq = strstr(mark, "<blockquote");
-    if (!bq) return;
-    const char* gt = strchr(bq, '>');
-    if (!gt) return;
-    const char* scan = gt + 1;
-    bool inTag = false;
-    size_t base = strlen(meta.summary);
-    while (scan < buffer + bufferSize && base < 511) {
-      if (*scan == '<') {
-        if (static_cast<size_t>(buffer + bufferSize - scan) >= 13 &&
-            strncmp(scan, "</blockquote>", 13) == 0) {
-          break;
-        }
-        inTag = true;
-      } else if (*scan == '>') {
-        inTag = false;
-      } else if (!inTag) {
-        meta.summary[base++] = *scan;
-      }
-      scan++;
+    char candidate[sizeof(meta.summary)] = {};
+    const size_t extracted =
+        Ao3HtmlMetadataParser::extractSummary(buffer, bufferSize, candidate, sizeof(candidate));
+    if (extracted > strlen(meta.summary)) {
+      memcpy(meta.summary, candidate, extracted + 1);
+      summaryBytes = extracted;
     }
-    meta.summary[base] = '\0';
   }
 
   void findFuzzyField(const char* anchor, std::function<void(const char*)> callback) {
@@ -638,134 +621,8 @@ class HtmlScraper : public Print {
     }
   }
 
-void extractTagsFromAnchor(const char* anchor) {
-    const char* pos = strstr(buffer, anchor);
-    if (!pos) return;
-
-    const char* scan = pos + strlen(anchor);
-    // Properly skip whole HTML tags and delimiters, so </b> doesn't leave 'b>' behind
-    while (scan < buffer + bufferSize) {
-      if (*scan == '<') {
-        while (scan < buffer + bufferSize && *scan != '>') scan++;
-        if (scan < buffer + bufferSize) scan++; // skip '>'
-      } else if (isspace(*scan) || *scan == ':' || *scan == '/' || *scan == '-' || *scan == '_') {
-        scan++;
-      } else {
-        break;
-      }
-    }
-    // Skip past already-extracted tags in the HTML source so the scan
-    // position stays in sync with the destination slot index.
-    int alreadyFilled = 0;
-    while (alreadyFilled < 4 && meta.tags[alreadyFilled][0]) alreadyFilled++;
-
-    for (int i = 0; i < alreadyFilled && scan < buffer + bufferSize; i++) {
-      const char* closingA = strstr(scan, "</a>");
-      if (!closingA) break;
-      scan = closingA + 4;
-      while (scan < buffer + bufferSize && (isspace(*scan) || *scan == ',' || *scan == '"')) scan++;
-    }
-
-    // check tagIdx and find the first empty slot
-    int tagIdx = alreadyFilled;
-
-    while (tagIdx < 4 && scan < buffer + bufferSize) {
-      const char* comma = strchr(scan, ',');
-      const char* lt = strchr(scan, '<');
-      const char* actualEnd = (comma && lt) ? std::min(comma, lt) : (comma ? comma : lt);
-      if (!actualEnd) break;
-
-      if (lt && lt == scan) {
-        // Native AO3: scan is sitting on an <a href="...">, skip into its text content
-        while (scan < buffer + bufferSize && *scan != '>') scan++;
-
-        // boundary check after pointer advancement
-        if (scan >= buffer + bufferSize) break;
-        scan++; // skip '>'
-
-        // Recalculate lt and actualEnd now that we're inside the tag text
-        lt = strchr(scan, '<');
-        if (!lt) break;
-        actualEnd = lt;
-      }
-
-      size_t rawLen = (size_t)(actualEnd - scan);
-      if (rawLen == 0) { scan = lt; continue; } // empty text node, skip
-
-      char tempTag[64] = {0};
-      size_t processLen = rawLen;
-      
-      const char* auPrefix = "Alternate Universe - ";
-      const size_t auLen = 21;
-      
-      const char* irPrefix = "Implied/Referenced ";
-      const size_t irLen = 19;
-
-      if (rawLen > auLen && strncasecmp(scan, auPrefix, auLen) == 0) {
-        // Handle "Alternate Universe - "
-        strcpy(tempTag, "AU-");
-        size_t remaining = std::min((size_t)(rawLen - auLen), (size_t)(sizeof(tempTag) - 4));
-        strncpy(tempTag + 3, scan + auLen, remaining);
-        processLen = 3 + remaining;
-        
-      } else if (rawLen > irLen && strncasecmp(scan, irPrefix, irLen) == 0) {
-        // Handle "Implied/Referenced "
-        strcpy(tempTag, "I/R ");
-        size_t remaining = std::min((size_t)(rawLen - irLen), (size_t)(sizeof(tempTag) - 5));
-        strncpy(tempTag + 4, scan + irLen, remaining);
-        processLen = 4 + remaining;
-        
-      } else {
-        // Standard tag processing
-        size_t maxCopy = std::min(rawLen, (size_t)(sizeof(tempTag) - 1));
-        strncpy(tempTag, scan, maxCopy);
-        processLen = maxCopy;
-      }
-
-      bool truncated = processLen > 15;
-      size_t len = std::min(processLen, truncated ? (size_t)14 : (size_t)15);
-      strncpy(meta.tags[tagIdx], tempTag, len);
-      meta.tags[tagIdx][len] = 0;
-
-      // trim space
-      size_t cleanLen = len;
-      while (cleanLen > 0 && isspace(static_cast<unsigned char>(meta.tags[tagIdx][cleanLen - 1]))) {
-        meta.tags[tagIdx][--cleanLen] = '\0';
-      }
-
-      // remove Other tag and leave others blank
-      if (tagIdx == 0 && (strcmp(meta.tags[tagIdx], "Other") == 0 || strncmp(meta.tags[tagIdx], "Other", 5) == 0)) {
-        meta.tags[tagIdx][0] = '\0';
-        break;
-      }
-
-      if (truncated) {
-        // If cleanLen was reduced by trimming a space, we have room for 2 dots to reach 15 chars
-        if (cleanLen < 14) {
-          meta.tags[tagIdx][cleanLen] = '.';
-          meta.tags[tagIdx][cleanLen + 1] = '.';
-          meta.tags[tagIdx][cleanLen + 2] = '\0';
-        } else {
-          // Normal mid-word truncation (1 dot)
-          meta.tags[tagIdx][cleanLen] = '.';
-          meta.tags[tagIdx][cleanLen + 1] = '\0';
-        }
-      }
-
-      tagIdx++;
-
-      if (actualEnd == lt) {
-        // Native AO3: skip past </a> closing tag and the ", " separator (including quotes)
-        scan = lt;
-        while (scan < buffer + bufferSize && *scan != '>') scan++;
-        if (scan < buffer + bufferSize) scan++; // skip '>'
-        while (scan < buffer + bufferSize && (isspace(*scan) || *scan == ',' || *scan == '"')) scan++;
-      } else {
-        // FFF: plain comma-separated text, just advance past the comma and whitespace
-        scan = actualEnd + 1;
-        while (scan < buffer + bufferSize && (isspace(*scan) || *scan == ',')) scan++;
-      }
-    }
+  void extractTagsFromAnchor(const char* anchor) {
+    Ao3HtmlMetadataParser::extractTags(buffer, bufferSize, anchor, meta.tags);
   }
 };
 

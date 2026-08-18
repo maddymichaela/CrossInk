@@ -2,6 +2,8 @@
 
 ### Fixed
 
+- AO3 Library modal screens now redraw on a white background, page counts share the header without covering the battery, and side-button hints show Up/Down. Short Up/Down jumps between fic pages; holding Up opens management and holding Down opens sorting.
+- AO3 metadata scraping now handles nested Kobo spans in tags and summaries, drops empty punctuation-only tags, uses more of each card for the summary, and can refresh metadata for already indexed works in batches.
 - AO3 settings now include an Ignored Folders tree with multi-select persistence. Discovery and every indexing batch skip those subtrees, and selecting the SD-card root as the AO3 scan root is supported.
 - AO3 works now return to their prior AO3 Library row after reading, including across AO3 network-update restarts.
 - The reader menu can check AO3 for updates and change AO3 status; unfinished works automatically enter Waiting for Chapter at the real end and offer Later/Search choices without replacing CrossInk's reader status bar or pagination.

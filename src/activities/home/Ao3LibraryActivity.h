@@ -28,6 +28,7 @@ class Ao3LibraryActivity final : public Activity {
 
   static constexpr int PAGE_SIZE = 3;
   static constexpr int ROW_TOUCH_BASE = 320;
+  static constexpr unsigned PANEL_HOLD_MS = 700;
 
   ButtonNavigator buttonNavigator;
   size_t selectorIndex = 0;
@@ -74,6 +75,7 @@ class Ao3LibraryActivity final : public Activity {
   void activateManageRow();
   void chooseAo3Folder();
   void chooseIgnoredFolders();
+  void startIndexing(bool refreshExisting);
   void renderFilterOverlay();
   void renderPicker();
   void renderManagePanel();

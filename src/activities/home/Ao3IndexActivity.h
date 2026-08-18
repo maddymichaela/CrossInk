@@ -8,7 +8,7 @@
 class Ao3IndexActivity final : public Activity {
  public:
   Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string scanRoot, int batchSize,
-                   std::vector<std::string> ignoredFolders = {});
+                   std::vector<std::string> ignoredFolders = {}, bool refreshExisting = false);
 
   void onEnter() override;
   void loop() override;
@@ -27,6 +27,7 @@ class Ao3IndexActivity final : public Activity {
   std::string scanRoot;
   std::vector<std::string> ignoredFolders;
   int batchSize = 10;
+  bool refreshExisting = false;
   std::vector<DirectoryEntry> directories;
   std::vector<uint32_t> indexedHashes;
   std::vector<uint32_t> attemptedHashes;

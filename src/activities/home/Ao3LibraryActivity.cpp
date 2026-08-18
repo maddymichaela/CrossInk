@@ -128,6 +128,14 @@ std::string truncatedToFit(const GfxRenderer& renderer, std::string text, const 
   }
   return text + "..";
 }
+
+bool hasTagText(const char* tag) {
+  if (!tag) return false;
+  for (const char* cursor = tag; *cursor; ++cursor) {
+    if (isalnum(static_cast<unsigned char>(*cursor))) return true;
+  }
+  return false;
+}
 }  // namespace
 
 Ao3LibraryActivity::Ao3LibraryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -452,7 +460,7 @@ void Ao3LibraryActivity::loadPageCache(const int page) {
     if (!pageMetadataLoaded[slot]) continue;
     pageStatus[slot] = deriveAo3DisplayStatus(pageMetadata[slot]);
     if (pageMetadata[slot].summary[0]) {
-      wrappedSummary[slot] = renderer.wrappedText(SMALL_FONT_ID, pageMetadata[slot].summary, summaryWidth, 3);
+      wrappedSummary[slot] = renderer.wrappedText(SMALL_FONT_ID, pageMetadata[slot].summary, summaryWidth, 8);
     }
   }
   cachedPage = page;
@@ -530,31 +538,18 @@ void Ao3LibraryActivity::activateFilterRow() {
 
 void Ao3LibraryActivity::activateManageRow() {
   if (manageRowIndex == 0) {
-    if (ao3Folder.empty()) {
-      chooseAo3Folder();
-      return;
-    }
-    viewEntries.clear();
-    viewEntries.shrink_to_fit();
-    startActivityForResult(
-        std::make_unique<Ao3IndexActivity>(renderer, mappedInput, ao3Folder, batchSize, ignoredFolders),
-                           [this](const ActivityResult&) {
-                             loadViewEntries();
-                             selectorIndex = 0;
-                             cachedPage = -1;
-                             loadPageCache(0);
-                             screenState = ScreenState::Library;
-                             requestUpdate(true);
-                           });
+    startIndexing(false);
   } else if (manageRowIndex == 1) {
-    chooseAo3Folder();
+    startIndexing(true);
   } else if (manageRowIndex == 2) {
-    chooseIgnoredFolders();
+    chooseAo3Folder();
   } else if (manageRowIndex == 3) {
+    chooseIgnoredFolders();
+  } else if (manageRowIndex == 4) {
     batchSize = batchSize == 10 ? 15 : (batchSize == 15 ? 20 : 10);
     saveSettings();
     requestUpdate(true);
-  } else if (manageRowIndex == 4) {
+  } else if (manageRowIndex == 5) {
     filterMode = filterMode == FilterMode::Automatic ? FilterMode::FolderTree : FilterMode::Automatic;
     activeState.fandom[0] = '\0';
     activeState.relationship[0] = '\0';
@@ -567,7 +562,7 @@ void Ao3LibraryActivity::activateManageRow() {
     cachedPage = -1;
     loadPageCache(0);
     requestUpdate(true);
-  } else if (manageRowIndex == 5) {
+  } else if (manageRowIndex == 6) {
     Ao3Librarian::sanitizeIndex();
     loadViewEntries();
     if (!viewEntries.empty() && selectorIndex >= viewEntries.size()) selectorIndex = viewEntries.size() - 1;
@@ -575,6 +570,26 @@ void Ao3LibraryActivity::activateManageRow() {
     loadPageCache(static_cast<int>(selectorIndex) / PAGE_SIZE);
     requestUpdate(true);
   }
+}
+
+void Ao3LibraryActivity::startIndexing(const bool refreshExisting) {
+  if (ao3Folder.empty()) {
+    chooseAo3Folder();
+    return;
+  }
+  viewEntries.clear();
+  viewEntries.shrink_to_fit();
+  startActivityForResult(
+      std::make_unique<Ao3IndexActivity>(renderer, mappedInput, ao3Folder, batchSize, ignoredFolders,
+                                         refreshExisting),
+      [this](const ActivityResult&) {
+        loadViewEntries();
+        selectorIndex = 0;
+        cachedPage = -1;
+        loadPageCache(0);
+        screenState = ScreenState::Library;
+        requestUpdate(true);
+      });
 }
 
 void Ao3LibraryActivity::chooseAo3Folder() {
@@ -671,16 +686,24 @@ void Ao3LibraryActivity::loop() {
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-      screenState = ScreenState::ManagePanel;
-      manageRowIndex = 0;
-      requestUpdate(true);
+      if (mappedInput.getHeldTime() >= PANEL_HOLD_MS) {
+        screenState = ScreenState::ManagePanel;
+        manageRowIndex = 0;
+        requestUpdate(true);
+      } else {
+        moveSelection(static_cast<int>(selectorIndex) - PAGE_SIZE);
+      }
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-      screenState = ScreenState::FilterPanel;
-      pendingState = activeState;
-      overlayRowIndex = 0;
-      requestUpdate(true);
+      if (mappedInput.getHeldTime() >= PANEL_HOLD_MS) {
+        screenState = ScreenState::FilterPanel;
+        pendingState = activeState;
+        overlayRowIndex = 0;
+        requestUpdate(true);
+      } else {
+        moveSelection(static_cast<int>(selectorIndex) + PAGE_SIZE);
+      }
       return;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -798,19 +821,19 @@ void Ao3LibraryActivity::loop() {
 
   if (screenState == ScreenState::ManagePanel) {
     buttonNavigator.onNextRelease([this] {
-      manageRowIndex = (manageRowIndex + 1) % 6;
+      manageRowIndex = (manageRowIndex + 1) % 7;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousRelease([this] {
-      manageRowIndex = (manageRowIndex + 5) % 6;
+      manageRowIndex = (manageRowIndex + 6) % 7;
       requestUpdate(true);
     });
     buttonNavigator.onNextContinuous([this] {
-      manageRowIndex = (manageRowIndex + 3) % 6;
+      manageRowIndex = (manageRowIndex + 3) % 7;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousContinuous([this] {
-      manageRowIndex = (manageRowIndex + 3) % 6;
+      manageRowIndex = (manageRowIndex + 4) % 7;
       requestUpdate(true);
     });
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) activateManageRow();
@@ -820,6 +843,10 @@ void Ao3LibraryActivity::loop() {
 void Ao3LibraryActivity::render(RenderLock&& lock) {
   if (screenState == ScreenState::FandomPicker || screenState == ScreenState::RelationshipPicker) {
     renderPicker();
+    return;
+  }
+  if (screenState == ScreenState::FilterPanel) {
+    renderFilterOverlay();
     return;
   }
   if (screenState == ScreenState::ManagePanel) {
@@ -835,10 +862,17 @@ void Ao3LibraryActivity::render(RenderLock&& lock) {
   } else {
     snprintf(headerTitle, sizeof(headerTitle), "AO3 Library");
   }
+  char pageLabel[24] = "0 / 0";
+  if (!viewEntries.empty()) {
+    const int page = static_cast<int>(selectorIndex) / PAGE_SIZE;
+    snprintf(pageLabel, sizeof(pageLabel), "%d / %d", page + 1,
+             (static_cast<int>(viewEntries.size()) + PAGE_SIZE - 1) / PAGE_SIZE);
+  }
   if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::draw(renderer, header, headerTitle, false);
+    const int paginationReserve = renderer.getTextWidth(SMALL_FONT_ID, pageLabel) + metrics.batteryWidth + 70;
+    TouchHeaderBackButton::draw(renderer, header, headerTitle, false, paginationReserve, pageLabel);
   } else {
-    GUI.drawHeader(renderer, header, headerTitle);
+    GUI.drawHeader(renderer, header, headerTitle, pageLabel);
   }
 
   if (viewEntries.empty()) {
@@ -865,34 +899,25 @@ void Ao3LibraryActivity::render(RenderLock&& lock) {
       }
     }
 
-    if (viewEntries.size() > PAGE_SIZE) {
-      char pageLabel[24];
-      snprintf(pageLabel, sizeof(pageLabel), "%d / %d", page + 1,
-               (static_cast<int>(viewEntries.size()) + PAGE_SIZE - 1) / PAGE_SIZE);
-      renderer.drawText(SMALL_FONT_ID,
-                        renderer.getScreenWidth() - metrics.contentSidePadding -
-                            renderer.getTextWidth(SMALL_FONT_ID, pageLabel),
-                        header.y + 7, pageLabel);
-    }
   }
 
-  if (screenState == ScreenState::FilterPanel) renderFilterOverlay();
   const auto labels = screenState == ScreenState::Library
-                          ? mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT))
+                          ? mappedInput.mapLabels(tr(STR_HOME), tr(STR_OPEN), tr(STR_DIR_UP), tr(STR_DIR_DOWN))
                           : mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
 
 void Ao3LibraryActivity::renderFilterOverlay() {
+  renderer.clearScreen(0xFF);
+  const auto& metrics = UITheme::getInstance().getMetrics();
   const int screenWidth = renderer.getScreenWidth();
-  const int startY = 48;
-  const int overlayHeight = std::min(340, renderer.getScreenHeight() - startY - 50);
+  const Rect header{0, metrics.topPadding, screenWidth, metrics.headerHeight};
+  GUI.drawHeader(renderer, header, "Sort & Filter");
+  const int startY = header.y + header.height + metrics.verticalSpacing;
+  const int overlayHeight = renderer.getScreenHeight() - startY - metrics.buttonHintsHeight;
   const int margin = 20;
-  renderer.fillRect(0, startY, screenWidth, overlayHeight, White);
-  renderer.fillRect(0, startY, screenWidth, 1, Black);
-  renderer.fillRect(0, startY + overlayHeight - 5, screenWidth, 5, Black);
-  renderer.drawText(UI_12_FONT_ID, margin + 8, startY + 18, "Sort & Filter", true, EpdFontFamily::BOLD);
+  renderer.fillRect(0, startY, screenWidth, overlayHeight, false);
 
   const char* values[5] = {};
   std::string fandom = pendingState.fandom[0] ? pendingState.fandom : "Any";
@@ -905,8 +930,8 @@ void Ao3LibraryActivity::renderFilterOverlay() {
   values[3] = pendingState.ascending ? "Ascending" : "Descending";
   values[4] = "Apply";
   const char* labels[5] = {"Fandom", "Relationship", "Sort by", "Order", ""};
-  const int firstY = startY + 58;
-  const int rowHeight = 51;
+  const int firstY = startY + 24;
+  const int rowHeight = std::max(45, (overlayHeight - 35) / 5);
   for (int row = 0; row < 5; ++row) {
     const int rowY = firstY + row * rowHeight;
     const bool disabled = row == 1 && !pendingState.fandom[0];
@@ -927,6 +952,9 @@ void Ao3LibraryActivity::renderFilterOverlay() {
                       screenWidth - margin - 10 - renderer.getTextWidth(UI_10_FONT_ID, value.c_str()), rowY,
                       value.c_str(), !disabled);
   }
+  const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4);
+  renderer.displayBuffer();
 }
 
 void Ao3LibraryActivity::renderPicker() {
@@ -978,29 +1006,29 @@ void Ao3LibraryActivity::renderManagePanel() {
   const Rect header{0, metrics.topPadding, pageWidth, metrics.headerHeight};
   GUI.drawHeader(renderer, header, "Manage AO3 Library");
   const int margin = 20;
-  const char* labels[6] = {"Index New Books", "AO3 Folder", "Ignored Folders", "Index Batch Size", "Filter Mode",
-                           "Library Cleanup"};
+  const char* labels[7] = {"Index New Books", "Refresh Metadata", "AO3 Folder", "Ignored Folders",
+                           "Index Batch Size", "Filter Mode", "Library Cleanup"};
   const std::string folderLabel = ao3Folder.empty() ? "Not set - select before indexing" : ao3Folder;
   char batchLabel[12];
   snprintf(batchLabel, sizeof(batchLabel), "%d", batchSize);
   char ignoredLabel[24];
   snprintf(ignoredLabel, sizeof(ignoredLabel), "%u selected", static_cast<unsigned>(ignoredFolders.size()));
-  const char* values[6] = {"", folderLabel.c_str(), ignoredLabel, batchLabel,
+  const char* values[7] = {"", "Re-read indexed AO3 EPUBs", folderLabel.c_str(), ignoredLabel, batchLabel,
                            filterMode == FilterMode::Automatic ? "Automatic" : "Folder Tree", ""};
   const int contentTop = header.y + header.height + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-  const int rowHeight = contentHeight / 6;
-  for (int row = 0; row < 6; ++row) {
+  const int rowHeight = contentHeight / 7;
+  for (int row = 0; row < 7; ++row) {
     const int y = contentTop + row * rowHeight;
     if (row == manageRowIndex) {
       renderer.fillRoundedRect(margin, y + 2, pageWidth - margin * 2, rowHeight - 5, 6, LightGray);
     }
-    renderer.drawText(UI_10_FONT_ID, margin + 10, y + 6, labels[row], true,
+    renderer.drawText(UI_10_FONT_ID, margin + 10, y + 3, labels[row], true,
                       row == manageRowIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     if (values[row][0]) {
       const std::string value = truncatedToFit(renderer, values[row], SMALL_FONT_ID, pageWidth - margin * 2 - 20,
                                                 EpdFontFamily::REGULAR);
-      renderer.drawText(SMALL_FONT_ID, margin + 10, y + 30, value.c_str(), true);
+      renderer.drawText(SMALL_FONT_ID, margin + 10, y + 25, value.c_str(), true);
     }
   }
   const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -1046,7 +1074,7 @@ void Ao3LibraryActivity::renderEntry(RenderLock& lock, const int y, const ViewEn
   int blockY = y + squareSize + 11;
   int tagX = margin;
   for (int i = 0; i < 4; ++i) {
-    if (!metadata.tags[i][0]) break;
+    if (!hasTagText(metadata.tags[i])) continue;
     const int width = renderer.getTextWidth(SMALL_FONT_ID, metadata.tags[i]) + 16;
     if (tagX + width > renderer.getScreenWidth() - margin) break;
     renderer.drawRoundedRect(tagX, blockY, width, 20, 1, 6, true);

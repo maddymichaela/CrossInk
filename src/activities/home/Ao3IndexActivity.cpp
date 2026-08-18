@@ -45,11 +45,12 @@ bool isAo3Publisher(std::string publisher) {
 
 Ao3IndexActivity::Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                    std::string scanRoot, const int batchSize,
-                                   std::vector<std::string> ignoredFolders)
+                                   std::vector<std::string> ignoredFolders, const bool refreshExisting)
     : Activity("Ao3Index", renderer, mappedInput),
       scanRoot(std::move(scanRoot)),
       ignoredFolders(std::move(ignoredFolders)),
-      batchSize(std::clamp(batchSize, 1, 20)) {
+      batchSize(std::clamp(batchSize, 1, 20)),
+      refreshExisting(refreshExisting) {
   while (this->scanRoot.length() > 1 && this->scanRoot.back() == '/') this->scanRoot.pop_back();
   for (std::string& path : this->ignoredFolders) {
     while (path.size() > 1 && path.back() == '/') path.pop_back();
@@ -74,7 +75,7 @@ bool Ao3IndexActivity::isEpubName(std::string name) {
 }
 
 bool Ao3IndexActivity::alreadyHandled(const uint32_t hash) const {
-  return std::binary_search(indexedHashes.begin(), indexedHashes.end(), hash) ||
+  return (!refreshExisting && std::binary_search(indexedHashes.begin(), indexedHashes.end(), hash)) ||
          std::binary_search(attemptedHashes.begin(), attemptedHashes.end(), hash);
 }
 
@@ -112,7 +113,7 @@ void Ao3IndexActivity::onEnter() {
   attemptedHashes.clear();
   directories.clear();
   buildIndexedHashes();
-  if (indexedHashes.size() >= MAX_LIBRARY_BOOKS) {
+  if (!refreshExisting && indexedHashes.size() >= MAX_LIBRARY_BOOKS) {
     state = State::Error;
     errorMessage = "AO3 library is full (400 works).";
   } else if (scanRoot.empty() || !Storage.exists(scanRoot.c_str())) {
@@ -210,7 +211,7 @@ void Ao3IndexActivity::indexNextBook() {
     requestUpdate(true);
     return;
   }
-  if (indexedHashes.size() + indexedCount >= MAX_LIBRARY_BOOKS) {
+  if (!refreshExisting && indexedHashes.size() + indexedCount >= MAX_LIBRARY_BOOKS) {
     state = State::Complete;
     requestUpdate(true);
     return;
@@ -290,13 +291,16 @@ void Ao3IndexActivity::render(RenderLock&&) {
   switch (state) {
     case State::Discovering:
       snprintf(primary, sizeof(primary), "Scanning %.70s", scanRoot.c_str());
-      snprintf(secondary, sizeof(secondary), "%u new EPUB%s found", static_cast<unsigned>(unindexedCount),
+      snprintf(secondary, sizeof(secondary), "%u %s EPUB%s found", static_cast<unsigned>(unindexedCount),
+               refreshExisting ? "AO3" : "new",
                unindexedCount == 1 ? "" : "s");
       break;
     case State::Confirm:
-      snprintf(primary, sizeof(primary), "%u new EPUB%s found", static_cast<unsigned>(unindexedCount),
+      snprintf(primary, sizeof(primary), "%u %s EPUB%s found", static_cast<unsigned>(unindexedCount),
+               refreshExisting ? "AO3" : "new",
                unindexedCount == 1 ? "" : "s");
-      snprintf(secondary, sizeof(secondary), "Index the next batch of %d?", batchSize);
+      snprintf(secondary, sizeof(secondary), "%s the next batch of %d?",
+               refreshExisting ? "Refresh" : "Index", batchSize);
       break;
     case State::Indexing:
       snprintf(primary, sizeof(primary), "Indexing %u / %u", static_cast<unsigned>(currentBook + 1),
