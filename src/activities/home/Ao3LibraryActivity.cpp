@@ -22,6 +22,7 @@
 #include "MappedInputManager.h"
 #include "activities/ActivityResult.h"
 #include "activities/home/Ao3FolderPickerActivity.h"
+#include "activities/home/Ao3IgnoredFoldersActivity.h"
 #include "activities/home/Ao3IndexActivity.h"
 #include "activities/util/OptionSelectionActivity.h"
 #include "components/TouchHeaderBackButton.h"
@@ -214,6 +215,7 @@ void Ao3LibraryActivity::loadViewEntries() {
 
 void Ao3LibraryActivity::loadSettings() {
   ao3Folder.clear();
+  ignoredFolders.clear();
   batchSize = 10;
   filterMode = FilterMode::Automatic;
   if (!Storage.exists(AO3_SETTINGS_PATH)) return;
@@ -222,7 +224,12 @@ void Ao3LibraryActivity::loadSettings() {
   JsonDocument document;
   if (deserializeJson(document, json)) return;
   ao3Folder = document["ao3Folder"] | "";
-  if (ao3Folder == "/") ao3Folder.clear();
+  for (JsonVariantConst value : document["ignoredFolders"].as<JsonArrayConst>()) {
+    std::string path = value.as<const char*>() ? value.as<const char*>() : "";
+    while (path.size() > 1 && path.back() == '/') path.pop_back();
+    if (!path.empty() && path != "/") ignoredFolders.push_back(std::move(path));
+  }
+  sortUnique(ignoredFolders);
   batchSize = document["batchSize"] | 10;
   if (batchSize != 10 && batchSize != 15 && batchSize != 20) batchSize = 10;
   filterMode = (document["filterMode"] | 0) == 1 ? FilterMode::FolderTree : FilterMode::Automatic;
@@ -233,6 +240,8 @@ void Ao3LibraryActivity::saveSettings() const {
   document["ao3Folder"] = ao3Folder;
   document["batchSize"] = batchSize;
   document["filterMode"] = filterMode == FilterMode::FolderTree ? 1 : 0;
+  JsonArray ignored = document["ignoredFolders"].to<JsonArray>();
+  for (const std::string& path : ignoredFolders) ignored.add(path);
   String json;
   serializeJson(document, json);
   Storage.writeFile(AO3_SETTINGS_PATH, json);
@@ -527,7 +536,8 @@ void Ao3LibraryActivity::activateManageRow() {
     }
     viewEntries.clear();
     viewEntries.shrink_to_fit();
-    startActivityForResult(std::make_unique<Ao3IndexActivity>(renderer, mappedInput, ao3Folder, batchSize),
+    startActivityForResult(
+        std::make_unique<Ao3IndexActivity>(renderer, mappedInput, ao3Folder, batchSize, ignoredFolders),
                            [this](const ActivityResult&) {
                              loadViewEntries();
                              selectorIndex = 0;
@@ -539,10 +549,12 @@ void Ao3LibraryActivity::activateManageRow() {
   } else if (manageRowIndex == 1) {
     chooseAo3Folder();
   } else if (manageRowIndex == 2) {
+    chooseIgnoredFolders();
+  } else if (manageRowIndex == 3) {
     batchSize = batchSize == 10 ? 15 : (batchSize == 15 ? 20 : 10);
     saveSettings();
     requestUpdate(true);
-  } else if (manageRowIndex == 3) {
+  } else if (manageRowIndex == 4) {
     filterMode = filterMode == FilterMode::Automatic ? FilterMode::FolderTree : FilterMode::Automatic;
     activeState.fandom[0] = '\0';
     activeState.relationship[0] = '\0';
@@ -555,7 +567,7 @@ void Ao3LibraryActivity::activateManageRow() {
     cachedPage = -1;
     loadPageCache(0);
     requestUpdate(true);
-  } else if (manageRowIndex == 4) {
+  } else if (manageRowIndex == 5) {
     Ao3Librarian::sanitizeIndex();
     loadViewEntries();
     if (!viewEntries.empty() && selectorIndex >= viewEntries.size()) selectorIndex = viewEntries.size() - 1;
@@ -570,8 +582,16 @@ void Ao3LibraryActivity::chooseAo3Folder() {
                          [this](const ActivityResult& result) {
                            if (!result.isCancelled) {
                              if (const auto* path = std::get_if<FilePathResult>(&result.data);
-                                 path && path->path != "/" && Storage.exists(path->path.c_str())) {
+                                 path && !path->path.empty() && Storage.exists(path->path.c_str())) {
                                ao3Folder = path->path;
+                               ignoredFolders.erase(
+                                   std::remove_if(ignoredFolders.begin(), ignoredFolders.end(), [this](const std::string& ignored) {
+                                     return ao3Folder == ignored ||
+                                            (ao3Folder.size() > ignored.size() &&
+                                             ao3Folder.compare(0, ignored.size(), ignored) == 0 &&
+                                             ignored != "/" && ao3Folder[ignored.size()] == '/');
+                                   }),
+                                   ignoredFolders.end());
                                saveSettings();
                                if (filterMode == FilterMode::FolderTree) {
                                  activeState.fandom[0] = '\0';
@@ -584,6 +604,24 @@ void Ao3LibraryActivity::chooseAo3Folder() {
                            }
                            requestUpdate(true);
                          });
+}
+
+void Ao3LibraryActivity::chooseIgnoredFolders() {
+  if (ao3Folder.empty()) {
+    chooseAo3Folder();
+    return;
+  }
+  startActivityForResult(
+      std::make_unique<Ao3IgnoredFoldersActivity>(renderer, mappedInput, ignoredFolders, ao3Folder),
+      [this](const ActivityResult& result) {
+        if (!result.isCancelled) {
+          if (const auto* folders = std::get_if<FolderListResult>(&result.data)) {
+            ignoredFolders = folders->paths;
+            saveSettings();
+          }
+        }
+        requestUpdate(true);
+      });
 }
 
 void Ao3LibraryActivity::openSelected() {
@@ -760,19 +798,19 @@ void Ao3LibraryActivity::loop() {
 
   if (screenState == ScreenState::ManagePanel) {
     buttonNavigator.onNextRelease([this] {
-      manageRowIndex = (manageRowIndex + 1) % 5;
+      manageRowIndex = (manageRowIndex + 1) % 6;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousRelease([this] {
-      manageRowIndex = (manageRowIndex + 4) % 5;
+      manageRowIndex = (manageRowIndex + 5) % 6;
       requestUpdate(true);
     });
     buttonNavigator.onNextContinuous([this] {
-      manageRowIndex = (manageRowIndex + 2) % 5;
+      manageRowIndex = (manageRowIndex + 3) % 6;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousContinuous([this] {
-      manageRowIndex = (manageRowIndex + 3) % 5;
+      manageRowIndex = (manageRowIndex + 3) % 6;
       requestUpdate(true);
     });
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) activateManageRow();
@@ -940,26 +978,29 @@ void Ao3LibraryActivity::renderManagePanel() {
   const Rect header{0, metrics.topPadding, pageWidth, metrics.headerHeight};
   GUI.drawHeader(renderer, header, "Manage AO3 Library");
   const int margin = 20;
-  const char* labels[5] = {"Index New Books", "AO3 Folder", "Index Batch Size", "Filter Mode", "Library Cleanup"};
+  const char* labels[6] = {"Index New Books", "AO3 Folder", "Ignored Folders", "Index Batch Size", "Filter Mode",
+                           "Library Cleanup"};
   const std::string folderLabel = ao3Folder.empty() ? "Not set - select before indexing" : ao3Folder;
   char batchLabel[12];
   snprintf(batchLabel, sizeof(batchLabel), "%d", batchSize);
-  const char* values[5] = {"", folderLabel.c_str(), batchLabel,
+  char ignoredLabel[24];
+  snprintf(ignoredLabel, sizeof(ignoredLabel), "%u selected", static_cast<unsigned>(ignoredFolders.size()));
+  const char* values[6] = {"", folderLabel.c_str(), ignoredLabel, batchLabel,
                            filterMode == FilterMode::Automatic ? "Automatic" : "Folder Tree", ""};
   const int contentTop = header.y + header.height + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-  const int rowHeight = contentHeight / 5;
-  for (int row = 0; row < 5; ++row) {
+  const int rowHeight = contentHeight / 6;
+  for (int row = 0; row < 6; ++row) {
     const int y = contentTop + row * rowHeight;
     if (row == manageRowIndex) {
       renderer.fillRoundedRect(margin, y + 2, pageWidth - margin * 2, rowHeight - 5, 6, LightGray);
     }
-    renderer.drawText(UI_10_FONT_ID, margin + 10, y + 10, labels[row], true,
+    renderer.drawText(UI_10_FONT_ID, margin + 10, y + 6, labels[row], true,
                       row == manageRowIndex ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     if (values[row][0]) {
       const std::string value = truncatedToFit(renderer, values[row], SMALL_FONT_ID, pageWidth - margin * 2 - 20,
                                                 EpdFontFamily::REGULAR);
-      renderer.drawText(SMALL_FONT_ID, margin + 10, y + 38, value.c_str(), true);
+      renderer.drawText(SMALL_FONT_ID, margin + 10, y + 30, value.c_str(), true);
     }
   }
   const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

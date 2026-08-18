@@ -44,11 +44,19 @@ bool isAo3Publisher(std::string publisher) {
 }  // namespace
 
 Ao3IndexActivity::Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                   std::string scanRoot, const int batchSize)
+                                   std::string scanRoot, const int batchSize,
+                                   std::vector<std::string> ignoredFolders)
     : Activity("Ao3Index", renderer, mappedInput),
       scanRoot(std::move(scanRoot)),
+      ignoredFolders(std::move(ignoredFolders)),
       batchSize(std::clamp(batchSize, 1, 20)) {
   while (this->scanRoot.length() > 1 && this->scanRoot.back() == '/') this->scanRoot.pop_back();
+  for (std::string& path : this->ignoredFolders) {
+    while (path.size() > 1 && path.back() == '/') path.pop_back();
+  }
+  std::sort(this->ignoredFolders.begin(), this->ignoredFolders.end());
+  this->ignoredFolders.erase(std::unique(this->ignoredFolders.begin(), this->ignoredFolders.end()),
+                             this->ignoredFolders.end());
 }
 
 uint32_t Ao3IndexActivity::pathHash(const std::string& path) {
@@ -68,6 +76,14 @@ bool Ao3IndexActivity::isEpubName(std::string name) {
 bool Ao3IndexActivity::alreadyHandled(const uint32_t hash) const {
   return std::binary_search(indexedHashes.begin(), indexedHashes.end(), hash) ||
          std::binary_search(attemptedHashes.begin(), attemptedHashes.end(), hash);
+}
+
+bool Ao3IndexActivity::isIgnored(const std::string& path) const {
+  return std::any_of(ignoredFolders.begin(), ignoredFolders.end(), [&path](const std::string& ignored) {
+    return path == ignored ||
+           (path.size() > ignored.size() && path.compare(0, ignored.size(), ignored) == 0 &&
+            path[ignored.size()] == '/');
+  });
 }
 
 void Ao3IndexActivity::buildIndexedHashes() {
@@ -99,7 +115,7 @@ void Ao3IndexActivity::onEnter() {
   if (indexedHashes.size() >= MAX_LIBRARY_BOOKS) {
     state = State::Error;
     errorMessage = "AO3 library is full (400 works).";
-  } else if (scanRoot.empty() || scanRoot == "/" || !Storage.exists(scanRoot.c_str())) {
+  } else if (scanRoot.empty() || !Storage.exists(scanRoot.c_str())) {
     state = State::Error;
     errorMessage = "Choose a dedicated AO3 folder before indexing.";
   } else {
@@ -116,6 +132,7 @@ void Ao3IndexActivity::discoverNextDirectory() {
   }
   DirectoryEntry current = std::move(directories.back());
   directories.pop_back();
+  if (isIgnored(current.path)) return;
   HalFile directory = Storage.open(current.path.c_str());
   if (!directory || !directory.isDirectory()) {
     if (directory) directory.close();
@@ -131,7 +148,7 @@ void Ao3IndexActivity::discoverNextDirectory() {
     path += name;
     if (child.isDirectory()) {
       if (name[0] != '.' && strcmp(name, "System Volume Information") != 0 && current.depth < 6) {
-        directories.push_back({std::move(path), static_cast<uint8_t>(current.depth + 1)});
+        if (!isIgnored(path)) directories.push_back({std::move(path), static_cast<uint8_t>(current.depth + 1)});
       }
     } else if (isEpubName(name) && !alreadyHandled(pathHash(path))) {
       ++unindexedCount;
@@ -151,6 +168,7 @@ void Ao3IndexActivity::collectNextBatch() {
   while (!directories.empty() && static_cast<int>(pendingBooks.size()) < batchSize) {
     DirectoryEntry current = std::move(directories.back());
     directories.pop_back();
+    if (isIgnored(current.path)) continue;
     HalFile directory = Storage.open(current.path.c_str());
     if (!directory || !directory.isDirectory()) {
       if (directory) directory.close();
@@ -165,7 +183,7 @@ void Ao3IndexActivity::collectNextBatch() {
       path += name;
       if (child.isDirectory()) {
         if (name[0] != '.' && strcmp(name, "System Volume Information") != 0 && current.depth < 6) {
-          directories.push_back({std::move(path), static_cast<uint8_t>(current.depth + 1)});
+          if (!isIgnored(path)) directories.push_back({std::move(path), static_cast<uint8_t>(current.depth + 1)});
         }
       } else if (isEpubName(name) && !alreadyHandled(pathHash(path))) {
         pendingBooks.push_back(std::move(path));

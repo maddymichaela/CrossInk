@@ -38,6 +38,7 @@ class Ao3LibraryActivity final : public Activity {
   FilterMode filterMode = FilterMode::Automatic;
   ScreenState screenState = ScreenState::Library;
   std::string ao3Folder;
+  std::vector<std::string> ignoredFolders;
   int batchSize = 10;
   int overlayRowIndex = 0;
   int manageRowIndex = 0;
@@ -72,6 +73,7 @@ class Ao3LibraryActivity final : public Activity {
   void activateFilterRow();
   void activateManageRow();
   void chooseAo3Folder();
+  void chooseIgnoredFolders();
   void renderFilterOverlay();
   void renderPicker();
   void renderManagePanel();

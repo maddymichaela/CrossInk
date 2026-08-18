@@ -7,7 +7,8 @@
 
 class Ao3IndexActivity final : public Activity {
  public:
-  Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string scanRoot, int batchSize);
+  Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string scanRoot, int batchSize,
+                   std::vector<std::string> ignoredFolders = {});
 
   void onEnter() override;
   void loop() override;
@@ -24,6 +25,7 @@ class Ao3IndexActivity final : public Activity {
 
   State state = State::Discovering;
   std::string scanRoot;
+  std::vector<std::string> ignoredFolders;
   int batchSize = 10;
   std::vector<DirectoryEntry> directories;
   std::vector<uint32_t> indexedHashes;
@@ -41,6 +43,7 @@ class Ao3IndexActivity final : public Activity {
   void collectNextBatch();
   void indexNextBook();
   bool alreadyHandled(uint32_t hash) const;
+  bool isIgnored(const std::string& path) const;
   static bool isEpubName(std::string name);
   static uint32_t pathHash(const std::string& path);
 };

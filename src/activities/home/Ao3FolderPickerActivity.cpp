@@ -83,13 +83,13 @@ void Ao3FolderPickerActivity::loop() {
     return;
   }
 
-  const int listSize = static_cast<int>(directories.size()) + (currentPath == "/" ? 0 : 1);
+  const int listSize = static_cast<int>(directories.size()) + 1;
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && listSize > 0) {
-    if (currentPath != "/" && selectorIndex == 0) {
+    if (selectorIndex == 0) {
       selectPath(currentPath);
       return;
     }
-    const size_t directoryIndex = selectorIndex - (currentPath == "/" ? 0 : 1);
+    const size_t directoryIndex = selectorIndex - 1;
     std::string path = currentPath;
     if (path.back() != '/') path += '/';
     path += directories[directoryIndex];
@@ -133,14 +133,15 @@ void Ao3FolderPickerActivity::render(RenderLock&&) {
   const int helperHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.verticalSpacing;
   const int contentHeight =
       pageHeight - contentTop - metrics.buttonHintsHeight - helperHeight - metrics.verticalSpacing;
-  const int listSize = static_cast<int>(directories.size()) + (currentPath == "/" ? 0 : 1);
+  const int listSize = static_cast<int>(directories.size()) + 1;
   if (listSize == 0) {
     renderer.drawCenteredText(UI_10_FONT_ID, contentTop + 20, "No folders found.");
   } else {
     GUI.drawList(renderer, Rect{0, contentTop, pageWidth, contentHeight}, listSize,
                  static_cast<int>(selectorIndex), [this](const int index) {
-                   if (currentPath != "/" && index == 0) return std::string("Use this folder");
-                   const int directoryIndex = index - (currentPath == "/" ? 0 : 1);
+                   if (index == 0) return currentPath == "/" ? std::string("Use SD Card root")
+                                                               : std::string("Use this folder");
+                   const int directoryIndex = index - 1;
                    return directories[directoryIndex] + "/";
                  });
   }
