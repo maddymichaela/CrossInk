@@ -6,11 +6,14 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <Epub.h>
 
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
+#include "Ao3DisplayStatus.h"
+#include "Ao3ReadingState.h"
 #include "BookActions.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -41,6 +44,76 @@ constexpr uint32_t FILE_BROWSER_APPEND_MIN_MAX_ALLOC_AFTER_ALLOC = 16U * 1024U;
 
 bool usesTwoLineFileBrowserRows() {
   return SETTINGS.fileBrowserDisplay == CrossPointSettings::FILE_BROWSER_DISPLAY_2_LINES;
+}
+
+fui::BitmapRef ao3StatusIcon(const Ao3DisplayStatus status, const int size) {
+  if (size >= 32) {
+    switch (status) {
+      case Ao3DisplayStatus::Unread:
+        return fui::bitmapFromIcon(icon_book_32);
+      case Ao3DisplayStatus::Reading:
+        return fui::bitmapFromIcon(icon_book_open_32);
+      case Ao3DisplayStatus::Waiting:
+        return fui::bitmapFromIcon(icon_history_32);
+      case Ao3DisplayStatus::UpdateAvailable:
+        return fui::bitmapFromIcon(icon_sun_32);
+      case Ao3DisplayStatus::Finished:
+        return fui::bitmapFromIcon(icon_book_marked_32);
+    }
+  }
+  switch (status) {
+    case Ao3DisplayStatus::Unread:
+      return fui::bitmapFromIcon(icon_book_24);
+    case Ao3DisplayStatus::Reading:
+      return fui::bitmapFromIcon(icon_book_open_24);
+    case Ao3DisplayStatus::Waiting:
+      return fui::bitmapFromIcon(icon_history_24);
+    case Ao3DisplayStatus::UpdateAvailable:
+      return fui::bitmapFromIcon(icon_sun_24);
+    case Ao3DisplayStatus::Finished:
+      return fui::bitmapFromIcon(icon_book_marked_24);
+  }
+  return {};
+}
+
+std::vector<std::string> ao3StatusOptions() {
+  return {"Automatic", "Unread", "Reading", "Waiting for Chapter", "New Chapter Available", "Finished"};
+}
+
+uint8_t ao3StatusOptionIndex(const Ao3ReadingState state) {
+  switch (state) {
+    case Ao3ReadingState::Unread:
+      return 1;
+    case Ao3ReadingState::Reading:
+      return 2;
+    case Ao3ReadingState::WaitingForChapter:
+      return 3;
+    case Ao3ReadingState::UpdateAvailable:
+      return 4;
+    case Ao3ReadingState::Finished:
+      return 5;
+    case Ao3ReadingState::None:
+    default:
+      return 0;
+  }
+}
+
+Ao3ReadingState ao3StateForOption(const uint8_t index) {
+  switch (index) {
+    case 1:
+      return Ao3ReadingState::Unread;
+    case 2:
+      return Ao3ReadingState::Reading;
+    case 3:
+      return Ao3ReadingState::WaitingForChapter;
+    case 4:
+      return Ao3ReadingState::UpdateAvailable;
+    case 5:
+      return Ao3ReadingState::Finished;
+    case 0:
+    default:
+      return Ao3ReadingState::None;
+  }
 }
 
 bool isDefaultSleepFolderPath(const std::string& path) { return path == "/sleep" || path == "/.sleep"; }
@@ -584,6 +657,11 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
   const std::string fullPath = buildFullPath(basepath, entry);
   std::vector<FileBrowserActionActivity::MenuItem> items = BookActions::buildBookActionItems(fullPath, false);
 
+  Ao3DisplayStatus ao3Status;
+  if (FsHelpers::hasEpubExtension(fullPath) && loadAo3DisplayStatus(fullPath, ao3Status)) {
+    items.push_back({FileBrowserAction::Ao3Status, StrId::STR_DISPLAY_STATUS, "AO3 Status"});
+  }
+
   if (BookActions::canSendNearby(fullPath)) {
     items.push_back({FileBrowserAction::SendNearby, StrId::STR_SEND_NEARBY_BOOK});
   }
@@ -688,6 +766,22 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                     }
                   }
                   requestUpdate();
+                });
+            return;
+          }
+          case FileBrowserAction::Ao3Status: {
+            const std::string cachePath = Epub::cachePathForFilePath(fullPath, "/.crosspoint");
+            const uint8_t currentIndex = ao3StatusOptionIndex(Ao3ReadingStateStore::load(cachePath));
+            startActivityForResult(
+                std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "Ao3StatusSelect",
+                                                          StrId::STR_DISPLAY_STATUS, ao3StatusOptions(), currentIndex),
+                [this, cachePath](const ActivityResult& selectionResult) {
+                  if (!selectionResult.isCancelled) {
+                    if (const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data)) {
+                      Ao3ReadingStateStore::save(cachePath, ao3StateForOption(selection->index));
+                    }
+                  }
+                  requestUpdate(true);
                 });
             return;
           }
@@ -1065,6 +1159,8 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   // FileIndex instead of duplicating every filename on the heap for UI rows.
   std::vector<std::string> names(drawCount);
   std::vector<std::string> values(drawCount);
+  std::vector<Ao3DisplayStatus> ao3Statuses(drawCount, Ao3DisplayStatus::Unread);
+  std::vector<bool> hasAo3Status(drawCount, false);
   std::vector<fui::ListItem> items;
   items.reserve(drawCount);
   for (size_t i = 0; i < drawCount; i++) {
@@ -1073,13 +1169,18 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     names[i] = getFileName(entry);
     if (SETTINGS.hideFileExtension == 0) values[i] = getFileExtension(entry);
     const std::string fullPath = buildFullPath(basepath, entry);
+    if (FsHelpers::hasEpubExtension(entry)) {
+      hasAo3Status[i] = loadAo3DisplayStatus(fullPath, ao3Statuses[i]);
+      if (hasAo3Status[i]) values[i] = ao3DisplayStatusLabel(ao3Statuses[i]);
+    }
     if ((entry.back() == '/' && isPreferredSleepFolder(fullPath)) || isPinnedSleepFavorite(fullPath)) {
       values[i] = values[i].empty() ? "*" : "* " + values[i];
     }
     fui::ListItem item;
     item.label = names[i].c_str();
     if (!values[i].empty()) item.value = values[i].c_str();
-    item.icon = listIconFor(UITheme::getFileIcon(entry), twoLineRows ? 32 : 24);
+    item.icon = hasAo3Status[i] ? ao3StatusIcon(ao3Statuses[i], twoLineRows ? 32 : 24)
+                                : listIconFor(UITheme::getFileIcon(entry), twoLineRows ? 32 : 24);
     item.actionValue = static_cast<int16_t>(entryIndex);
     items.push_back(item);
   }

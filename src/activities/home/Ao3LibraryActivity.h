@@ -65,6 +65,7 @@ class Ao3LibraryActivity final : public Activity {
   void sortViewEntries();
   void loadPageCache(int page);
   void openSelected();
+  void chooseSelectedStatus();
   void cycleSort(int direction);
   void moveSelection(int index);
   void applyPendingFilter();

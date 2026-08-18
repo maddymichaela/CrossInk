@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- AO3 status icons and automatic/manual status selection are available in File Browser and AO3 Library without changing CrossInk reader progress or completion data.
 - AO3 works now open through the unmodified CrossInk reader, restoring configured status-bar progress, time-left estimates, and page-number behavior.
 - AO3 indexing now recognizes Kobo-converted native AO3 EPUBs by checking the first three spine items and falling back to the preserved AO3 publisher metadata.
 - AO3 Library now explains how to begin indexing, uses a white full-screen management view, visibly saves the selected AO3 folder, scans only that folder, and allows Back to cancel active indexing.

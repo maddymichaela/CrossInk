@@ -19,7 +19,10 @@ struct Ao3StateRecord {
 bool isValidState(uint8_t state) {
   return state == static_cast<uint8_t>(Ao3ReadingState::None) ||
          state == static_cast<uint8_t>(Ao3ReadingState::WaitingForChapter) ||
-         state == static_cast<uint8_t>(Ao3ReadingState::UpdateAvailable);
+         state == static_cast<uint8_t>(Ao3ReadingState::UpdateAvailable) ||
+         state == static_cast<uint8_t>(Ao3ReadingState::Unread) ||
+         state == static_cast<uint8_t>(Ao3ReadingState::Reading) ||
+         state == static_cast<uint8_t>(Ao3ReadingState::Finished);
 }
 
 std::string statePath(const std::string& cachePath) { return cachePath + AO3_STATE_FILE; }
@@ -66,10 +69,16 @@ bool Ao3ReadingStateStore::remove(const std::string& cachePath) {
 
 const char* Ao3ReadingStateStore::labelFor(const Ao3ReadingState state) {
   switch (state) {
+    case Ao3ReadingState::Unread:
+      return "Unread";
+    case Ao3ReadingState::Reading:
+      return "Reading";
     case Ao3ReadingState::WaitingForChapter:
       return "Waiting for Chapter";
     case Ao3ReadingState::UpdateAvailable:
       return "New Chapter Available";
+    case Ao3ReadingState::Finished:
+      return "Finished";
     case Ao3ReadingState::None:
     default:
       return "";

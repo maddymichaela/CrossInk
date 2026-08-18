@@ -20,8 +20,9 @@ void FileBrowserActionActivity::onEnter() {
   int touchY = 0;
   ignoreTouchRelease = mappedInput.isScreenTouchHeld(touchX, touchY);
   optionLabels.resize(items.size());
-  std::transform(items.begin(), items.end(), optionLabels.begin(),
-                 [](const MenuItem& item) { return std::string(I18N.get(item.labelId)); });
+  std::transform(items.begin(), items.end(), optionLabels.begin(), [](const MenuItem& item) {
+    return std::string(item.customLabel ? item.customLabel : I18N.get(item.labelId));
+  });
   optionPopup.show(title.c_str(), optionLabels, 0, [this](const int index) {
     if (index < 0 || index >= static_cast<int>(items.size())) return;
     selectionMade = true;

@@ -25,6 +25,7 @@ enum class FileBrowserAction : int {
   EpubRenderMode = 13,
   ResetReaderSettings = 14,
   SendNearby = 15,
+  Ao3Status = 16,
 };
 
 class FileBrowserActionActivity final : public Activity {
@@ -32,6 +33,7 @@ class FileBrowserActionActivity final : public Activity {
   struct MenuItem {
     FileBrowserAction action;
     StrId labelId;
+    const char* customLabel = nullptr;
   };
 
   FileBrowserActionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string title,

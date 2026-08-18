@@ -7,6 +7,9 @@ enum class Ao3ReadingState : uint8_t {
   None = 0,
   WaitingForChapter = 1,
   UpdateAvailable = 2,
+  Unread = 3,
+  Reading = 4,
+  Finished = 5,
 };
 
 class Ao3ReadingStateStore {

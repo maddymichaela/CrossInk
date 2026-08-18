@@ -11,10 +11,16 @@ Ao3DisplayStatus deriveAo3DisplayStatus(const Ao3LibraryMetadata& metadata) {
 
   const std::string cachePath = Epub::cachePathForFilePath(metadata.filepath, "/.crosspoint");
   switch (Ao3ReadingStateStore::load(cachePath)) {
+    case Ao3ReadingState::Unread:
+      return Ao3DisplayStatus::Unread;
+    case Ao3ReadingState::Reading:
+      return Ao3DisplayStatus::Reading;
     case Ao3ReadingState::UpdateAvailable:
       return Ao3DisplayStatus::UpdateAvailable;
     case Ao3ReadingState::WaitingForChapter:
       return Ao3DisplayStatus::Waiting;
+    case Ao3ReadingState::Finished:
+      return Ao3DisplayStatus::Finished;
     case Ao3ReadingState::None:
       break;
   }
