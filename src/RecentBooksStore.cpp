@@ -26,6 +26,7 @@ void RecentBooksStore::toJson(JsonDocument& doc) const {
     obj["author"] = book.author;
     obj["coverBmpPath"] = book.coverBmpPath;
     obj["coverState"] = static_cast<uint8_t>(book.coverState);
+    obj["pinned"] = book.pinned;
   }
 }
 
@@ -46,6 +47,7 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
     if (storedCoverState == static_cast<int>(RecentBook::CoverState::Missing)) {
       book.coverState = RecentBook::CoverState::Missing;
     }
+    book.pinned = obj["pinned"] | false;
     recentBooks.push_back(book);
   }
 
@@ -66,10 +68,12 @@ void RecentBooksStore::addOrUpdateBook(const std::string& path, const std::strin
   auto it =
       std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
   if (it != recentBooks.end()) {
+    const bool wasPinned = it->pinned;
     it->title = title;
     it->author = author;
     it->coverBmpPath = coverBmpPath;
     it->coverState = coverState;
+    it->pinned = wasPinned;
     if (it != recentBooks.begin()) {
       RecentBook book = std::move(*it);
       recentBooks.erase(it);
@@ -77,8 +81,14 @@ void RecentBooksStore::addOrUpdateBook(const std::string& path, const std::strin
     }
   } else {
     recentBooks.insert(recentBooks.begin(), {path, title, author, coverBmpPath, coverState});
-    if (recentBooks.size() > MAX_RECENT_BOOKS) {
-      recentBooks.resize(MAX_RECENT_BOOKS);
+  }
+  while (recentBooks.size() > MAX_RECENT_BOOKS) {
+    const auto evict = std::find_if(recentBooks.rbegin(), recentBooks.rend(),
+                                    [](const RecentBook& book) { return !book.pinned; });
+    if (evict == recentBooks.rend()) {
+      recentBooks.pop_back();
+    } else {
+      recentBooks.erase(std::next(evict).base());
     }
   }
   saveToFile();
@@ -111,6 +121,28 @@ bool RecentBooksStore::removeByPath(const std::string& path) {
     LOG_ERR("RBS", "Failed to persist removal of recent book: %s", path.c_str());
   }
   return true;
+}
+
+bool RecentBooksStore::isPinned(const std::string& path) const {
+  const auto it =
+      std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
+  return it != recentBooks.end() && it->pinned;
+}
+
+bool RecentBooksStore::setPinned(const std::string& path, const bool pinned) {
+  auto it =
+      std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
+  if (it == recentBooks.end()) return false;
+  if (it->pinned != pinned) {
+    it->pinned = pinned;
+    saveToFile();
+  }
+  return true;
+}
+
+int RecentBooksStore::getPinnedCount() const {
+  return static_cast<int>(std::count_if(recentBooks.begin(), recentBooks.end(),
+                                        [](const RecentBook& book) { return book.pinned; }));
 }
 
 void RecentBooksStore::updatePath(const std::string& oldPath, const std::string& newPath,

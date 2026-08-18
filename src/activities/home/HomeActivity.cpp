@@ -632,19 +632,18 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(std::min(static_cast<int>(books.size()), maxBooks));
 
-  for (const RecentBook& storedBook : books) {
-    // Limit to maximum number of recent books
-    if (recentBooks.size() >= maxBooks) {
-      break;
-    }
+  for (const bool pinnedPass : {true, false}) {
+    for (const RecentBook& storedBook : books) {
+      if (recentBooks.size() >= maxBooks) break;
+      if (storedBook.pinned != pinnedPass) continue;
 
-    RecentBook book = storedBook;
-    if (RecentBooksStore::isMissing(book)) {
-      continue;
-    }
+      RecentBook book = storedBook;
+      if (RecentBooksStore::isMissing(book)) continue;
 
-    ensureReusableCoverPath(book);
-    recentBooks.push_back(book);
+      ensureReusableCoverPath(book);
+      if (book.pinned) book.title = "\xC2\xB7 " + book.title;
+      recentBooks.push_back(book);
+    }
   }
 }
 

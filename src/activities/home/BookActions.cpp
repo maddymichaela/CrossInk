@@ -9,6 +9,7 @@
 #include <Logging.h>
 #include <Xtc.h>
 
+#include <algorithm>
 #include <cstdio>
 
 #include "BookmarkStore.h"
@@ -46,12 +47,15 @@ std::string bookStatsCachePath(const std::string& path) {
 std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std::string& fullPath,
                                                                       const bool includeRemoveFromRecents) {
   std::vector<FileBrowserActionActivity::MenuItem> items;
-  items.reserve(includeRemoveFromRecents ? 7 : 6);
+  items.reserve(includeRemoveFromRecents ? 8 : 7);
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
   if (hasClearableBookCache(fullPath)) {
     items.push_back({FileBrowserAction::DeleteCache, StrId::STR_DELETE_CACHE});
   }
   if (FsHelpers::hasEpubExtension(fullPath)) {
+    const bool pinned = RECENT_BOOKS.isPinned(fullPath);
+    items.push_back({pinned ? FileBrowserAction::UnpinFromHome : FileBrowserAction::PinToHome,
+                     StrId::STR_DISPLAY_STATUS, pinned ? "Unpin from Home" : "Pin to Home"});
     items.push_back({FileBrowserAction::EpubRenderMode, StrId::STR_EPUB_RENDER_MODE});
     items.push_back({FileBrowserAction::ResetReaderSettings, StrId::STR_RESET_BOOK_READER_SETTINGS});
   }
@@ -100,6 +104,25 @@ bool deleteBookStats(const std::string& fullPath) {
     return false;
   }
   return BookReadingStats::remove(cachePath);
+}
+
+bool setPinnedToHome(const std::string& fullPath, const bool pinned) {
+  if (!FsHelpers::hasEpubExtension(fullPath)) return false;
+
+  if (pinned && !RECENT_BOOKS.isPinned(fullPath)) {
+    const auto& books = RECENT_BOOKS.getBooks();
+    const bool alreadyRecent =
+        std::any_of(books.begin(), books.end(), [&](const RecentBook& book) { return book.path == fullPath; });
+    if (!alreadyRecent) {
+      RecentBook book = RECENT_BOOKS.getDataFromBook(fullPath);
+      if (book.title.empty()) {
+        const size_t slash = fullPath.find_last_of('/');
+        book.title = slash == std::string::npos ? fullPath : fullPath.substr(slash + 1);
+      }
+      RECENT_BOOKS.addOrUpdateBook(book.path, book.title, book.author, book.coverBmpPath, book.coverState);
+    }
+  }
+  return RECENT_BOOKS.setPinned(fullPath, pinned);
 }
 
 bool resetBookReaderSettings(const std::string& fullPath) {

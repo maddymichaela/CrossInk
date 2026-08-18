@@ -26,6 +26,8 @@ enum class FileBrowserAction : int {
   ResetReaderSettings = 14,
   SendNearby = 15,
   Ao3Status = 16,
+  PinToHome = 17,
+  UnpinFromHome = 18,
 };
 
 class FileBrowserActionActivity final : public Activity {

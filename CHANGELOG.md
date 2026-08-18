@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Durable Home pinning is restored for longfics. Pin or unpin EPUBs from existing long-press book menus; pinned books appear first on Home with a middle-dot marker without changing CrossInk's Back-button behavior.
 - AO3 status icons and automatic/manual status selection are available in File Browser and AO3 Library without changing CrossInk reader progress or completion data.
 - AO3 works now open through the unmodified CrossInk reader, restoring configured status-bar progress, time-left estimates, and page-number behavior.
 - AO3 indexing now recognizes Kobo-converted native AO3 EPUBs by checking the first three spine items and falling back to the preserved AO3 publisher metadata.

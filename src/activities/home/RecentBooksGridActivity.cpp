@@ -628,6 +628,12 @@ void RecentBooksGridActivity::showBookActionMenu(const int bookIndex, const bool
           case FileBrowserAction::SendNearby:
             activityManager.goToNearbyBookSend(book.path, false);
             return;
+          case FileBrowserAction::PinToHome:
+          case FileBrowserAction::UnpinFromHome:
+            BookActions::setPinnedToHome(book.path, static_cast<FileBrowserAction>(actionResult->action) ==
+                                                       FileBrowserAction::PinToHome);
+            reloadAfterBookAction();
+            return;
           case FileBrowserAction::PinFavorite:
           case FileBrowserAction::UnpinFavorite:
           case FileBrowserAction::SetSleepFolder:
@@ -636,6 +642,7 @@ void RecentBooksGridActivity::showBookActionMenu(const int bookIndex, const bool
           case FileBrowserAction::ViewClippings:
           case FileBrowserAction::DeleteBookmarks:
           case FileBrowserAction::DeleteClippings:
+          case FileBrowserAction::Ao3Status:
             return;
         }
       });

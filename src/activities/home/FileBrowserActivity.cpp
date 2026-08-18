@@ -785,6 +785,11 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                 });
             return;
           }
+          case FileBrowserAction::PinToHome:
+          case FileBrowserAction::UnpinFromHome:
+            BookActions::setPinnedToHome(fullPath, action == FileBrowserAction::PinToHome);
+            requestUpdate(true);
+            return;
           case FileBrowserAction::PinFavorite:
             if (FsHelpers::hasPngExtension(fullPath)) {
               startActivityForResult(
