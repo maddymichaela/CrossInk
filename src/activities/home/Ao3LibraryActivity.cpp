@@ -36,46 +36,6 @@ constexpr char AO3_SETTINGS_PATH[] = "/.crosspoint/ao3_settings.json";
 constexpr char AO3_FILTER_PATH[] = "/.crosspoint/ao3SortFilterState.json";
 constexpr unsigned long STATUS_PICKER_HOLD_MS = 1000;
 
-std::vector<std::string> ao3StatusOptions() {
-  return {"Automatic", "Unread", "Reading", "Waiting for Chapter", "New Chapter Available", "Finished"};
-}
-
-uint8_t ao3StatusOptionIndex(const Ao3ReadingState state) {
-  switch (state) {
-    case Ao3ReadingState::Unread:
-      return 1;
-    case Ao3ReadingState::Reading:
-      return 2;
-    case Ao3ReadingState::WaitingForChapter:
-      return 3;
-    case Ao3ReadingState::UpdateAvailable:
-      return 4;
-    case Ao3ReadingState::Finished:
-      return 5;
-    case Ao3ReadingState::None:
-    default:
-      return 0;
-  }
-}
-
-Ao3ReadingState ao3StateForOption(const uint8_t index) {
-  switch (index) {
-    case 1:
-      return Ao3ReadingState::Unread;
-    case 2:
-      return Ao3ReadingState::Reading;
-    case 3:
-      return Ao3ReadingState::WaitingForChapter;
-    case 4:
-      return Ao3ReadingState::UpdateAvailable;
-    case 5:
-      return Ao3ReadingState::Finished;
-    case 0:
-    default:
-      return Ao3ReadingState::None;
-  }
-}
-
 uint32_t stablePathHash(const std::string& path) {
   return static_cast<uint32_t>(ZipFile::fnvHash64(path.c_str(), path.size()));
 }
@@ -638,7 +598,7 @@ void Ao3LibraryActivity::openSelected() {
     return;
   }
   // AO3 works use the normal CrossInk reader without any AO3-specific reader state.
-  activityManager.goToReader(pageMetadata[slot].filepath);
+  activityManager.goToReaderFromAo3(pageMetadata[slot].filepath, selectorIndex);
 }
 
 void Ao3LibraryActivity::chooseSelectedStatus() {
@@ -649,14 +609,14 @@ void Ao3LibraryActivity::chooseSelectedStatus() {
   if (!pageMetadataLoaded[slot] || pageMetadata[slot].filepath[0] == '\0') return;
 
   const std::string cachePath = Epub::cachePathForFilePath(pageMetadata[slot].filepath, "/.crosspoint");
-  const uint8_t currentIndex = ao3StatusOptionIndex(Ao3ReadingStateStore::load(cachePath));
+  const uint8_t currentIndex = ao3ReadingStateOptionIndex(Ao3ReadingStateStore::load(cachePath));
   startActivityForResult(
       std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "Ao3StatusSelect", StrId::STR_DISPLAY_STATUS,
-                                                ao3StatusOptions(), currentIndex),
+                                                ao3ReadingStateOptions(), currentIndex),
       [this, cachePath](const ActivityResult& result) {
         if (!result.isCancelled) {
           if (const auto* selection = std::get_if<OptionSelectionResult>(&result.data)) {
-            Ao3ReadingStateStore::save(cachePath, ao3StateForOption(selection->index));
+            Ao3ReadingStateStore::save(cachePath, ao3ReadingStateForOption(selection->index));
           }
         }
         cachedPage = -1;

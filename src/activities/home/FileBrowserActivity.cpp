@@ -76,46 +76,6 @@ fui::BitmapRef ao3StatusIcon(const Ao3DisplayStatus status, const int size) {
   return {};
 }
 
-std::vector<std::string> ao3StatusOptions() {
-  return {"Automatic", "Unread", "Reading", "Waiting for Chapter", "New Chapter Available", "Finished"};
-}
-
-uint8_t ao3StatusOptionIndex(const Ao3ReadingState state) {
-  switch (state) {
-    case Ao3ReadingState::Unread:
-      return 1;
-    case Ao3ReadingState::Reading:
-      return 2;
-    case Ao3ReadingState::WaitingForChapter:
-      return 3;
-    case Ao3ReadingState::UpdateAvailable:
-      return 4;
-    case Ao3ReadingState::Finished:
-      return 5;
-    case Ao3ReadingState::None:
-    default:
-      return 0;
-  }
-}
-
-Ao3ReadingState ao3StateForOption(const uint8_t index) {
-  switch (index) {
-    case 1:
-      return Ao3ReadingState::Unread;
-    case 2:
-      return Ao3ReadingState::Reading;
-    case 3:
-      return Ao3ReadingState::WaitingForChapter;
-    case 4:
-      return Ao3ReadingState::UpdateAvailable;
-    case 5:
-      return Ao3ReadingState::Finished;
-    case 0:
-    default:
-      return Ao3ReadingState::None;
-  }
-}
-
 bool isDefaultSleepFolderPath(const std::string& path) { return path == "/sleep" || path == "/.sleep"; }
 
 bool isSleepImageFile(const std::string& path) {
@@ -771,14 +731,15 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
           }
           case FileBrowserAction::Ao3Status: {
             const std::string cachePath = Epub::cachePathForFilePath(fullPath, "/.crosspoint");
-            const uint8_t currentIndex = ao3StatusOptionIndex(Ao3ReadingStateStore::load(cachePath));
+            const uint8_t currentIndex = ao3ReadingStateOptionIndex(Ao3ReadingStateStore::load(cachePath));
             startActivityForResult(
                 std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "Ao3StatusSelect",
-                                                          StrId::STR_DISPLAY_STATUS, ao3StatusOptions(), currentIndex),
+                                                          StrId::STR_DISPLAY_STATUS, ao3ReadingStateOptions(),
+                                                          currentIndex),
                 [this, cachePath](const ActivityResult& selectionResult) {
                   if (!selectionResult.isCancelled) {
                     if (const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data)) {
-                      Ao3ReadingStateStore::save(cachePath, ao3StateForOption(selection->index));
+                      Ao3ReadingStateStore::save(cachePath, ao3ReadingStateForOption(selection->index));
                     }
                   }
                   requestUpdate(true);

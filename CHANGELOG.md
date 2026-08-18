@@ -2,6 +2,8 @@
 
 ### Fixed
 
+- AO3 works now return to their prior AO3 Library row after reading, including across AO3 network-update restarts.
+- The reader menu can check AO3 for updates and change AO3 status; unfinished works automatically enter Waiting for Chapter at the real end and offer Later/Search choices without replacing CrossInk's reader status bar or pagination.
 - Durable Home pinning is restored for longfics. Pin or unpin EPUBs from existing long-press book menus; pinned books appear first on Home with a middle-dot marker without changing CrossInk's Back-button behavior.
 - AO3 status icons and automatic/manual status selection are available in File Browser and AO3 Library without changing CrossInk reader progress or completion data.
 - AO3 works now open through the unmodified CrossInk reader, restoring configured status-bar progress, time-left estimates, and page-number behavior.

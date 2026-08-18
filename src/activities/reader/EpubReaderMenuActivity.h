@@ -46,14 +46,17 @@ class EpubReaderMenuActivity final : public Activity {
     VIEW_CLIPPINGS,
     LOOKUP,
     LOOKUP_HISTORY,
-    SET_BOOK_DICTIONARY
+    SET_BOOK_DICTIONARY,
+    AO3_CHECK_UPDATES,
+    AO3_STATUS
   };
 
   explicit EpubReaderMenuActivity(
       GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title, const int currentPage,
       const int totalPages, const int bookProgressPercent, const uint8_t currentOrientation, const bool hasFootnotes,
       const bool hasDictionary, const bool hasBookmarks, const bool hasClippings, const bool isCurrentPageBookmarked,
-      const bool isBookCompleted, const bool autoPageTurnActive = false, const uint16_t autoPageTurnIntervalSeconds = 0,
+      const bool isBookCompleted, const bool hasAo3Work, const bool autoPageTurnActive = false,
+      const uint16_t autoPageTurnIntervalSeconds = 0,
       const bool showReadingPaceReset = false,
       ReaderOptionsActivity::SaveSettingsCallback saveReaderSettingsCallback = nullptr,
       void* saveReaderSettingsContext = nullptr,
@@ -80,6 +83,7 @@ class EpubReaderMenuActivity final : public Activity {
   struct MenuItem {
     MenuAction action;
     StrId labelId;
+    const char* customLabel = nullptr;
   };
 
   enum class MenuTab : uint8_t { Main = 0, Bookmarks = 1, Settings = 2 };
@@ -94,7 +98,7 @@ class EpubReaderMenuActivity final : public Activity {
 
   static TabMenuItems buildMenuItems(bool hasFootnotes, bool hasBookmarks, bool hasClippings,
                                      bool isCurrentPageBookmarked, bool isBookCompleted, bool showReadingPaceReset,
-                                     bool hasDictionary);
+                                     bool hasDictionary, bool hasAo3Work);
   [[nodiscard]] const std::vector<MenuItem>& activeMenuItems() const;
   [[nodiscard]] size_t activeTabIndex() const { return static_cast<size_t>(activeTab); }
   void cycleActiveTab();

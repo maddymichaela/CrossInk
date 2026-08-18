@@ -24,6 +24,7 @@
 
 #include "../settings/DictionarySelectActivity.h"
 #include "../settings/KOReaderSettingsActivity.h"
+#include "Ao3ReadingState.h"
 #include "BookStatsActivity.h"
 #include "ClipSelectionActivity.h"
 #include "ClippingStore.h"
@@ -52,6 +53,7 @@
 #include "activities/home/RecentBookProgress.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
+#include "activities/util/OptionSelectionActivity.h"
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
 #if CROSSINK_APP_CAP_TOUCH
@@ -1805,11 +1807,64 @@ bool EpubReaderActivity::shouldQueueCompletionPromptOnChapterExit() const {
     return false;
   }
 
+  if (isAo3UnfinishedWork()) return false;
+
   if (currentSpineIndex != completionTriggerSpineIndex) {
     return false;
   }
 
   return section->currentPage >= section->pageCount - 1;
+}
+
+bool EpubReaderActivity::isAo3UnfinishedWork() const {
+  return epub && epub->isAo3Work() && !epub->isAo3Completed() && !epub->getAo3WorkId().empty();
+}
+
+void EpubReaderActivity::startAo3Update() {
+  if (!epub || epub->getAo3WorkId().empty()) {
+    requestUpdate();
+    return;
+  }
+
+  int spine = currentSpineIndex;
+  int page = section ? section->currentPage : nextPageNumber;
+  int pageCount = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
+  if (spine >= epub->getSpineItemsCount()) {
+    spine = std::max(0, epub->getSpineItemsCount() - 1);
+    pageCount = std::max(1, pageCount);
+    page = pageCount - 1;
+  }
+  if (!saveProgress(spine, page, std::max(1, pageCount))) {
+    LOG_ERR("AO3U", "Could not save progress before AO3 update check");
+    drawToast(renderer, tr(STR_NEARBY_TRANSFER_PROGRESS_SAVE_FAILED));
+    delay(1200);
+    requestUpdate();
+    return;
+  }
+  activityManager.goToAo3Update(epub->getPath(), epub->getAo3WorkId(), epub->getAo3UpdateDate());
+}
+
+void EpubReaderActivity::showAo3EndOfBookPrompt() {
+  if (!isAo3UnfinishedWork() || ao3EndPromptShown) return;
+  ao3EndPromptShown = true;
+  if (Ao3ReadingStateStore::load(epub->getCachePath()) == Ao3ReadingState::None) {
+    Ao3ReadingStateStore::save(epub->getCachePath(), Ao3ReadingState::WaitingForChapter);
+  }
+
+  pauseReadingPaceTimer("ao3_end_prompt");
+  startActivityForResult(
+      std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "Ao3EndOfBook", StrId::STR_CHECK_UPDATES,
+                                                std::vector<std::string>{"Later", "Search AO3 for new chapters"}, 0,
+                                                true, true),
+      [this](const ActivityResult& result) {
+        const auto* selection = std::get_if<OptionSelectionResult>(&result.data);
+        if (!result.isCancelled && selection && selection->index == 1) {
+          startAo3Update();
+          return;
+        }
+        resumeReadingPaceTimer("ao3_end_prompt_return");
+        requestUpdate();
+      });
 }
 
 void EpubReaderActivity::queueCompletionPromptIfNeeded() {
@@ -2222,6 +2277,7 @@ void EpubReaderActivity::openReaderMenu() {
           !previewActive && epub && Dictionary::exists(epub->getCachePath().c_str()), !BOOKMARKS.getBookmarks().empty(),
           CLIPPINGS.hasClippings(),
           !previewActive && BOOKMARKS.hasBookmarkForPage(bmSpine, bmProgress, bookmarkPageCount), isBookCompleted,
+          epub && !epub->getAo3WorkId().empty(),
           automaticPageTurnActive, getAutoPageTurnIntervalSeconds(),
           SETTINGS.statusBarTimeLeft != CrossPointSettings::STATUS_BAR_TIME_LEFT::TIME_LEFT_HIDE,
           saveReaderOptionsForBook, this, saveGlobalSettingsForBookReader, this, beginGlobalSettingsEditForBookReader,
@@ -2350,7 +2406,7 @@ void EpubReaderActivity::loop() {
   if (goHomeAfterBuildCancel.load(std::memory_order_relaxed) && !RenderLock::peek()) {
     goHomeAfterBuildCancel.store(false, std::memory_order_relaxed);
     sectionBuildCancelRequested.store(false, std::memory_order_relaxed);
-    onGoHome();
+    activityManager.returnFromReader();
     return;
   }
 
@@ -2524,7 +2580,7 @@ void EpubReaderActivity::loop() {
   // re-add it. So removal only sticks if the reader leaves while still on the End-of-Book
   // screen. Acts only on the transition (guarded by recentsEntryRemoved) — no per-frame writes.
   if (SETTINGS.removeReadBooksFromRecents) {
-    if (atEndOfBook && !recentsEntryRemoved) {
+    if (atEndOfBook && !recentsEntryRemoved && !isAo3UnfinishedWork() && !RECENT_BOOKS.isPinned(epub->getPath())) {
       recentsEntryRemoved = RECENT_BOOKS.removeByPath(epub->getPath());
     } else if (!atEndOfBook && recentsEntryRemoved) {
       RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
@@ -2536,9 +2592,15 @@ void EpubReaderActivity::loop() {
   // setBookCompleted() also arms this when the user marks a book finished before
   // the End-of-Book screen.
   if (atEndOfBook) {
-    pendingReadFolderMove = SETTINGS.moveFinishedToReadFolder && !isInReadFolder(epub->getPath());
+    pendingReadFolderMove = SETTINGS.moveFinishedToReadFolder && !isAo3UnfinishedWork() &&
+                            !isInReadFolder(epub->getPath());
   } else if (!stats.isCompleted) {
     pendingReadFolderMove = false;
+  }
+
+  if (atEndOfBook && isAo3UnfinishedWork() && !ao3EndPromptShown) {
+    showAo3EndOfBookPrompt();
+    return;
   }
 
   if (automaticPageTurnActive) {
@@ -2659,7 +2721,7 @@ void EpubReaderActivity::loop() {
       restoreSavedPosition();
       return;
     }
-    onGoHome();
+    activityManager.returnFromReader();
     return;
   }
 
@@ -3247,6 +3309,27 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                                resumeReadingPaceTimer("dictionary_select_return");
                                requestUpdate();
                              });
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::AO3_CHECK_UPDATES:
+      startAo3Update();
+      return;
+    case EpubReaderMenuActivity::MenuAction::AO3_STATUS: {
+      if (!epub) break;
+      const std::string cachePath = epub->getCachePath();
+      const uint8_t currentIndex = ao3ReadingStateOptionIndex(Ao3ReadingStateStore::load(cachePath));
+      startActivityForResult(
+          std::make_unique<OptionSelectionActivity>(renderer, mappedInput, "ReaderAo3Status",
+                                                    StrId::STR_DISPLAY_STATUS, ao3ReadingStateOptions(), currentIndex,
+                                                    true, true),
+          [this, cachePath](const ActivityResult& result) {
+            if (!result.isCancelled) {
+              if (const auto* selection = std::get_if<OptionSelectionResult>(&result.data)) {
+                Ao3ReadingStateStore::save(cachePath, ao3ReadingStateForOption(selection->index));
+              }
+            }
+            requestUpdate();
+          });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::GO_HOME: {
@@ -4314,7 +4397,7 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
   }
   if (isCompleted) {
     completionPromptShown = true;
-    if (SETTINGS.removeReadBooksFromRecents) {
+    if (SETTINGS.removeReadBooksFromRecents && !RECENT_BOOKS.isPinned(epub->getPath())) {
       RECENT_BOOKS.removeByPath(epub->getPath());
     }
     if (SETTINGS.moveFinishedToReadFolder && !isInReadFolder(epub->getPath())) {

@@ -84,3 +84,43 @@ const char* Ao3ReadingStateStore::labelFor(const Ao3ReadingState state) {
       return "";
   }
 }
+
+std::vector<std::string> ao3ReadingStateOptions() {
+  return {"Automatic", "Unread", "Reading", "Waiting for Chapter", "New Chapter Available", "Finished"};
+}
+
+uint8_t ao3ReadingStateOptionIndex(const Ao3ReadingState state) {
+  switch (state) {
+    case Ao3ReadingState::Unread:
+      return 1;
+    case Ao3ReadingState::Reading:
+      return 2;
+    case Ao3ReadingState::WaitingForChapter:
+      return 3;
+    case Ao3ReadingState::UpdateAvailable:
+      return 4;
+    case Ao3ReadingState::Finished:
+      return 5;
+    case Ao3ReadingState::None:
+    default:
+      return 0;
+  }
+}
+
+Ao3ReadingState ao3ReadingStateForOption(const uint8_t index) {
+  switch (index) {
+    case 1:
+      return Ao3ReadingState::Unread;
+    case 2:
+      return Ao3ReadingState::Reading;
+    case 3:
+      return Ao3ReadingState::WaitingForChapter;
+    case 4:
+      return Ao3ReadingState::UpdateAvailable;
+    case 5:
+      return Ao3ReadingState::Finished;
+    case 0:
+    default:
+      return Ao3ReadingState::None;
+  }
+}

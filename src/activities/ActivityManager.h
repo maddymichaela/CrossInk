@@ -77,6 +77,9 @@ class ActivityManager {
 
   bool handleGlobalHomeGesture();
   bool handleReaderPowerButtonSettingsOverride();
+  enum class ReaderReturnTarget { Home, Ao3Library };
+  ReaderReturnTarget readerReturnTarget = ReaderReturnTarget::Home;
+  size_t readerReturnAo3Index = 0;
 
  public:
   explicit ActivityManager(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -110,6 +113,8 @@ class ActivityManager {
   bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false);
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
                   bool cleanImageBaseOnEntry = false);
+  void goToReaderFromAo3(std::string path, size_t selectorIndex);
+  void returnFromReader();
   void goToSleep(bool fromTimeout = false);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);

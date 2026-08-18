@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 enum class Ao3ReadingState : uint8_t {
   None = 0,
@@ -19,3 +20,7 @@ class Ao3ReadingStateStore {
   static bool remove(const std::string& cachePath);
   static const char* labelFor(Ao3ReadingState state);
 };
+
+std::vector<std::string> ao3ReadingStateOptions();
+uint8_t ao3ReadingStateOptionIndex(Ao3ReadingState state);
+Ao3ReadingState ao3ReadingStateForOption(uint8_t index);

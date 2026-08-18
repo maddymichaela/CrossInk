@@ -8,6 +8,7 @@
 #include <Memory.h>
 
 #include <algorithm>
+#include <cstring>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -37,6 +38,46 @@
 namespace {
 constexpr uint32_t FILE_TRANSFER_MODE_MASK = 0xFF;
 constexpr uint32_t FILE_TRANSFER_RETURN_TO_READER = 1U << 8;
+constexpr char AO3_READER_RETURN_PATH[] = "/.crosspoint/ao3_reader_return.bin";
+constexpr uint32_t AO3_READER_RETURN_MAGIC = 0x52334F41;  // "AO3R" LE
+constexpr size_t AO3_READER_RETURN_BOOK_PATH_SIZE = 512;
+
+struct Ao3ReaderReturnRecord {
+  uint32_t magic = AO3_READER_RETURN_MAGIC;
+  uint8_t version = 1;
+  uint8_t reserved[3] = {0, 0, 0};
+  uint32_t selectorIndex = 0;
+  char bookPath[AO3_READER_RETURN_BOOK_PATH_SIZE] = {};
+};
+
+void clearAo3ReaderReturn() { Storage.remove(AO3_READER_RETURN_PATH); }
+
+bool saveAo3ReaderReturn(const std::string& path, const size_t selectorIndex) {
+  if (path.empty() || path.size() >= AO3_READER_RETURN_BOOK_PATH_SIZE) return false;
+  Storage.mkdir("/.crosspoint");
+  FsFile file;
+  if (!Storage.openFileForWrite("AO3R", AO3_READER_RETURN_PATH, file)) return false;
+  Ao3ReaderReturnRecord record;
+  record.selectorIndex = static_cast<uint32_t>(selectorIndex);
+  memcpy(record.bookPath, path.c_str(), path.size() + 1);
+  const bool ok = file.write(reinterpret_cast<const uint8_t*>(&record), sizeof(record)) == sizeof(record) && file.sync();
+  file.close();
+  return ok;
+}
+
+bool loadAo3ReaderReturn(const std::string& path, size_t& selectorIndex) {
+  FsFile file;
+  if (!Storage.openFileForRead("AO3R", AO3_READER_RETURN_PATH, file)) return false;
+  Ao3ReaderReturnRecord record;
+  const bool read = file.read(reinterpret_cast<uint8_t*>(&record), sizeof(record)) == sizeof(record);
+  file.close();
+  if (!read || record.magic != AO3_READER_RETURN_MAGIC || record.version != 1 ||
+      record.bookPath[sizeof(record.bookPath) - 1] != '\0' || path != record.bookPath) {
+    return false;
+  }
+  selectorIndex = record.selectorIndex;
+  return true;
+}
 
 uint32_t fileTransferBootPayload(const NetworkMode mode, const bool returnToReader) {
   return static_cast<uint32_t>(mode) | (returnToReader ? FILE_TRANSFER_RETURN_TO_READER : 0);
@@ -411,8 +452,38 @@ void ActivityManager::goToReader(std::string path, const bool suppressBackReleas
   // OPDS credentials are unrelated to local reading and may contain several
   // heap-backed strings. Home reloads them lazily when it becomes active.
   OPDS_STORE.release();
+  size_t ao3Index = 0;
+  if (loadAo3ReaderReturn(path, ao3Index)) {
+    readerReturnTarget = ReaderReturnTarget::Ao3Library;
+    readerReturnAo3Index = ao3Index;
+  } else {
+    readerReturnTarget = ReaderReturnTarget::Home;
+    readerReturnAo3Index = 0;
+    clearAo3ReaderReturn();
+  }
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), suppressBackRelease,
                                                    allowFastInitialRefresh, cleanImageBaseOnEntry));
+}
+
+void ActivityManager::goToReaderFromAo3(std::string path, const size_t selectorIndex) {
+  clearAo3ReaderReturn();
+  if (!saveAo3ReaderReturn(path, selectorIndex)) {
+    LOG_ERR("ACT", "Could not persist AO3 reader return context");
+  }
+  goToReader(std::move(path));
+}
+
+void ActivityManager::returnFromReader() {
+  const ReaderReturnTarget target = readerReturnTarget;
+  const size_t ao3Index = readerReturnAo3Index;
+  readerReturnTarget = ReaderReturnTarget::Home;
+  readerReturnAo3Index = 0;
+  clearAo3ReaderReturn();
+  if (target == ReaderReturnTarget::Ao3Library) {
+    goToAo3Library(ao3Index);
+    return;
+  }
+  goHome();
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {
@@ -430,6 +501,9 @@ void ActivityManager::goToFullScreenMessage(std::string message, EpdFontFamily::
 }
 
 void ActivityManager::goHome(HomeMenuItem initialMenuItem, const bool initialFullRefresh) {
+  readerReturnTarget = ReaderReturnTarget::Home;
+  readerReturnAo3Index = 0;
+  clearAo3ReaderReturn();
   if (initialMenuItem == HomeMenuItem::NONE && currentActivity) {
     const auto& activityName = currentActivity->name;
     if (activityName == "FileBrowser") {

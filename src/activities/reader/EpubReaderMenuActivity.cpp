@@ -164,7 +164,8 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(
     GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title, const int currentPage,
     const int totalPages, const int bookProgressPercent, const uint8_t currentOrientation, const bool hasFootnotes,
     const bool hasDictionary, const bool hasBookmarks, const bool hasClippings, const bool isCurrentPageBookmarked,
-    const bool isBookCompleted, const bool autoPageTurnActive, const uint16_t autoPageTurnIntervalSeconds,
+    const bool isBookCompleted, const bool hasAo3Work, const bool autoPageTurnActive,
+    const uint16_t autoPageTurnIntervalSeconds,
     const bool showReadingPaceReset, ReaderOptionsActivity::SaveSettingsCallback saveReaderSettingsCallback,
     void* saveReaderSettingsContext, ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback,
     void* saveGlobalSettingsContext, ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback,
@@ -175,7 +176,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(
     void* dictionaryFontChangedContext)
     : Activity("EpubReaderMenu", renderer, mappedInput),
       menuItems(buildMenuItems(hasFootnotes, hasBookmarks, hasClippings, isCurrentPageBookmarked, isBookCompleted,
-                               showReadingPaceReset, hasDictionary)),
+                               showReadingPaceReset, hasDictionary, hasAo3Work)),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
@@ -205,7 +206,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(
 
 EpubReaderMenuActivity::TabMenuItems EpubReaderMenuActivity::buildMenuItems(
     bool hasFootnotes, bool hasBookmarks, bool hasClippings, bool isCurrentPageBookmarked, bool isBookCompleted,
-    bool showReadingPaceReset, bool hasDictionary) {
+    bool showReadingPaceReset, bool hasDictionary, bool hasAo3Work) {
   TabMenuItems items;
   auto& mainItems = items[MAIN_TAB_INDEX];
   auto& bookmarkItems = items[BOOKMARKS_TAB_INDEX];
@@ -228,6 +229,10 @@ EpubReaderMenuActivity::TabMenuItems EpubReaderMenuActivity::buildMenuItems(
   mainItems.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   mainItems.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_INTERVAL_SECONDS});
   mainItems.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
+  if (hasAo3Work) {
+    mainItems.push_back({MenuAction::AO3_CHECK_UPDATES, StrId::STR_CHECK_UPDATES, "Check AO3 Updates"});
+    mainItems.push_back({MenuAction::AO3_STATUS, StrId::STR_DISPLAY_STATUS, "AO3 Status"});
+  }
   mainItems.push_back(
       {MenuAction::TOGGLE_COMPLETED, isBookCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
   bookmarkItems.push_back({MenuAction::SAVE_CLIPPING, StrId::STR_SAVE_CLIPPING});
@@ -602,7 +607,7 @@ void EpubReaderMenuActivity::buildMenuScreen(UiApp::ScreenType& screen) {
   for (size_t i = 0; i < activeItems.size(); i++) {
     const auto& menuItem = activeItems[i];
     fui::ListItem item;
-    item.label = I18N.get(menuItem.labelId);
+    item.label = menuItem.customLabel ? menuItem.customLabel : I18N.get(menuItem.labelId);
     if (menuItem.action == MenuAction::ROTATE_SCREEN) {
       item.value = I18N.get(orientationLabels[pendingOrientation]);
     } else if (menuItem.action == MenuAction::AUTO_PAGE_TURN) {

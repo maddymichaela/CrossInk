@@ -205,6 +205,7 @@ class EpubReaderActivity final : public Activity {
   float completionTriggerSpineProgress = 1.0f;
   bool completionPromptQueued = false;
   bool completionPromptShown = false;
+  bool ao3EndPromptShown = false;
   bool completionTriggerSeenBelow = false;
   bool completionTriggerCrossed = false;
   bool lastAtOrPastCompletionTrigger = false;
@@ -405,6 +406,9 @@ class EpubReaderActivity final : public Activity {
   bool isAtOrPastCompletionTrigger() const;
   bool shouldQueueCompletionPromptOnChapterExit() const;
   void queueCompletionPromptIfNeeded();
+  bool isAo3UnfinishedWork() const;
+  void startAo3Update();
+  void showAo3EndOfBookPrompt();
   void setBookCompleted(bool isCompleted);
   void showCompletedFeedback(bool isCompleted);
   void showTiltPageTurnFeedback(bool enabled);
