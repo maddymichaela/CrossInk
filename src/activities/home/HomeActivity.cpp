@@ -632,20 +632,20 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(std::min(static_cast<int>(books.size()), maxBooks));
 
-  auto appendBooks = [this, maxBooks, &books](const bool pinned) {
-    for (const RecentBook& storedBook : books) {
-      if (recentBooks.size() >= maxBooks) break;
-      if (storedBook.pinned != pinned || RecentBooksStore::isMissing(storedBook)) continue;
-
-      RecentBook book = storedBook;
-      ensureReusableCoverPath(book);
-      if (book.pinned) book.title = "* " + book.title;
-      recentBooks.push_back(std::move(book));
+  for (const RecentBook& storedBook : books) {
+    // Limit to maximum number of recent books
+    if (recentBooks.size() >= maxBooks) {
+      break;
     }
-  };
 
-  appendBooks(true);
-  appendBooks(false);
+    RecentBook book = storedBook;
+    if (RecentBooksStore::isMissing(book)) {
+      continue;
+    }
+
+    ensureReusableCoverPath(book);
+    recentBooks.push_back(book);
+  }
 }
 
 void HomeActivity::loadAllBookStats() {
@@ -1518,14 +1518,6 @@ void HomeActivity::loop() {
         minimalMenuIndex = ButtonNavigator::nextIndex(minimalMenuIndex, menuCount);
         requestUpdate();
       });
-      buttonNavigator.onPreviousContinuous([this, menuCount] {
-        minimalMenuIndex = ButtonNavigator::previousThreeIndex(minimalMenuIndex, menuCount);
-        requestUpdate();
-      });
-      buttonNavigator.onNextContinuous([this, menuCount] {
-        minimalMenuIndex = ButtonNavigator::nextThreeIndex(minimalMenuIndex, menuCount);
-        requestUpdate();
-      });
       if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
         minimalMenuOpen = false;
         minimalHomeNavIndex = -1;
@@ -1904,20 +1896,12 @@ void HomeActivity::loop() {
     }
 
     const int menuCount = getMenuItemCount();
-    buttonNavigator.onNextPress([this, menuCount] {
+    buttonNavigator.onNext([this, menuCount] {
       selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
       requestUpdate();
     });
-    buttonNavigator.onPreviousPress([this, menuCount] {
+    buttonNavigator.onPrevious([this, menuCount] {
       selectorIndex = ButtonNavigator::previousIndex(selectorIndex, menuCount);
-      requestUpdate();
-    });
-    buttonNavigator.onNextContinuous([this, menuCount] {
-      selectorIndex = ButtonNavigator::nextThreeIndex(selectorIndex, menuCount);
-      requestUpdate();
-    });
-    buttonNavigator.onPreviousContinuous([this, menuCount] {
-      selectorIndex = ButtonNavigator::previousThreeIndex(selectorIndex, menuCount);
       requestUpdate();
     });
   }

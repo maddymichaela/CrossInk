@@ -121,7 +121,6 @@
 #else
 #define BITTER_20_FONT_ID (1392022129)
 #endif
-#define NOTOSANS_10_FONT_ID (-809900598)
 #define UI_10_FONT_ID (-227549249)
 #define UI_12_FONT_ID (652043988)
 #define SMALL_FONT_ID (-1760306835)
@@ -152,7 +151,6 @@ static_assert(BITTER_14_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BITTER_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BITTER_18_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BITTER_20_FONT_ID != 0, "Font ID collision with sentinel");
-static_assert(NOTOSANS_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(SMALL_FONT_ID != 0, "Font ID collision with sentinel");

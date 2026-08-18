@@ -46,7 +46,7 @@ std::string bookStatsCachePath(const std::string& path) {
 std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std::string& fullPath,
                                                                       const bool includeRemoveFromRecents) {
   std::vector<FileBrowserActionActivity::MenuItem> items;
-  items.reserve(includeRemoveFromRecents ? 8 : 7);
+  items.reserve(includeRemoveFromRecents ? 7 : 6);
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
   if (hasClearableBookCache(fullPath)) {
     items.push_back({FileBrowserAction::DeleteCache, StrId::STR_DELETE_CACHE});
@@ -59,10 +59,6 @@ std::vector<FileBrowserActionActivity::MenuItem> buildBookActionItems(const std:
     items.push_back({FileBrowserAction::DeleteStats, StrId::STR_DELETE_BOOK_STATS});
     items.push_back({FileBrowserAction::ToggleCompleted,
                      isBookCompleted(fullPath) ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
-  }
-  if (FsHelpers::hasEpubExtension(fullPath)) {
-    items.push_back({RECENT_BOOKS.isPinned(fullPath) ? FileBrowserAction::UnpinFromHome : FileBrowserAction::PinToHome,
-                     RECENT_BOOKS.isPinned(fullPath) ? StrId::STR_UNPIN_FROM_HOME : StrId::STR_PIN_TO_HOME});
   }
   if (includeRemoveFromRecents) {
     items.push_back({FileBrowserAction::RemoveFromRecents, StrId::STR_REMOVE_FROM_RECENTS_ACTION});
@@ -111,19 +107,6 @@ bool resetBookReaderSettings(const std::string& fullPath) {
     return false;
   }
   return EpubReaderActivity::resetBookReaderSettings(fullPath);
-}
-
-bool setPinnedToHome(const std::string& fullPath, const bool pinned) {
-  if (!FsHelpers::hasEpubExtension(fullPath)) return false;
-  if (!RECENT_BOOKS.isPinned(fullPath) && pinned) {
-    RecentBook book = RECENT_BOOKS.getDataFromBook(fullPath);
-    if (book.title.empty()) {
-      const size_t slash = fullPath.find_last_of('/');
-      book.title = slash == std::string::npos ? fullPath : fullPath.substr(slash + 1);
-    }
-    RECENT_BOOKS.addOrUpdateBook(fullPath, book.title, book.author, book.coverBmpPath, book.coverState);
-  }
-  return RECENT_BOOKS.setPinned(fullPath, pinned);
 }
 
 std::vector<std::string> epubRenderModeOptions() {

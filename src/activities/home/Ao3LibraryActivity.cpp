@@ -594,7 +594,8 @@ void Ao3LibraryActivity::openSelected() {
     LOG_ERR("AO3L", "Could not resolve selected AO3 work (hash %u)", viewEntries[selectorIndex].cacheHash);
     return;
   }
-  activityManager.goToReaderFromAo3(pageMetadata[slot].filepath, selectorIndex);
+  // AO3 works use the normal CrossInk reader without any AO3-specific reader state.
+  activityManager.goToReader(pageMetadata[slot].filepath);
 }
 
 void Ao3LibraryActivity::loop() {

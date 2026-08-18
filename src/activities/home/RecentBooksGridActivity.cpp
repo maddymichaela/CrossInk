@@ -628,13 +628,6 @@ void RecentBooksGridActivity::showBookActionMenu(const int bookIndex, const bool
           case FileBrowserAction::SendNearby:
             activityManager.goToNearbyBookSend(book.path, false);
             return;
-          case FileBrowserAction::PinToHome:
-          case FileBrowserAction::UnpinFromHome:
-            BookActions::setPinnedToHome(book.path,
-                                         static_cast<FileBrowserAction>(actionResult->action) ==
-                                             FileBrowserAction::PinToHome);
-            reloadAfterBookAction();
-            return;
           case FileBrowserAction::PinFavorite:
           case FileBrowserAction::UnpinFavorite:
           case FileBrowserAction::SetSleepFolder:

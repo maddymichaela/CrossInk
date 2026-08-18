@@ -164,8 +164,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(
     GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title, const int currentPage,
     const int totalPages, const int bookProgressPercent, const uint8_t currentOrientation, const bool hasFootnotes,
     const bool hasDictionary, const bool hasBookmarks, const bool hasClippings, const bool isCurrentPageBookmarked,
-    const bool isBookCompleted, const bool hasAo3Update, const bool autoPageTurnActive,
-    const uint16_t autoPageTurnIntervalSeconds,
+    const bool isBookCompleted, const bool autoPageTurnActive, const uint16_t autoPageTurnIntervalSeconds,
     const bool showReadingPaceReset, ReaderOptionsActivity::SaveSettingsCallback saveReaderSettingsCallback,
     void* saveReaderSettingsContext, ReaderOptionsActivity::SaveGlobalSettingsCallback saveGlobalSettingsCallback,
     void* saveGlobalSettingsContext, ReaderOptionsActivity::GlobalSettingsEditCallback beginGlobalSettingsEditCallback,
@@ -176,7 +175,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(
     void* dictionaryFontChangedContext)
     : Activity("EpubReaderMenu", renderer, mappedInput),
       menuItems(buildMenuItems(hasFootnotes, hasBookmarks, hasClippings, isCurrentPageBookmarked, isBookCompleted,
-                               showReadingPaceReset, hasDictionary, hasAo3Update)),
+                               showReadingPaceReset, hasDictionary)),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
@@ -206,7 +205,7 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(
 
 EpubReaderMenuActivity::TabMenuItems EpubReaderMenuActivity::buildMenuItems(
     bool hasFootnotes, bool hasBookmarks, bool hasClippings, bool isCurrentPageBookmarked, bool isBookCompleted,
-    bool showReadingPaceReset, bool hasDictionary, bool hasAo3Update) {
+    bool showReadingPaceReset, bool hasDictionary) {
   TabMenuItems items;
   auto& mainItems = items[MAIN_TAB_INDEX];
   auto& bookmarkItems = items[BOOKMARKS_TAB_INDEX];
@@ -229,9 +228,6 @@ EpubReaderMenuActivity::TabMenuItems EpubReaderMenuActivity::buildMenuItems(
   mainItems.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   mainItems.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_INTERVAL_SECONDS});
   mainItems.push_back({MenuAction::READING_STATS, StrId::STR_READING_STATS});
-  if (hasAo3Update) {
-    mainItems.push_back({MenuAction::AO3_INFORMATION, StrId::STR_CHECK_UPDATES, "AO3 Information"});
-  }
   mainItems.push_back(
       {MenuAction::TOGGLE_COMPLETED, isBookCompleted ? StrId::STR_MARK_UNFINISHED : StrId::STR_MARK_FINISHED});
   bookmarkItems.push_back({MenuAction::SAVE_CLIPPING, StrId::STR_SAVE_CLIPPING});
@@ -563,20 +559,8 @@ void EpubReaderMenuActivity::loop() {
   buttonNavigator.onPreviousRelease([this, menuCount, &moveSelection] {
     moveSelection(ButtonNavigator::previousIndex(selectedIndex + 1, menuCount + 1));
   });
-  buttonNavigator.onNextContinuous([this, menuCount, &moveSelection] {
-    if (selectedIndex < 0) {
-      moveActiveTab(true);
-    } else {
-      moveSelection(ButtonNavigator::nextThreeIndex(selectedIndex + 1, menuCount + 1));
-    }
-  });
-  buttonNavigator.onPreviousContinuous([this, menuCount, &moveSelection] {
-    if (selectedIndex < 0) {
-      moveActiveTab(false);
-    } else {
-      moveSelection(ButtonNavigator::previousThreeIndex(selectedIndex + 1, menuCount + 1));
-    }
-  });
+  buttonNavigator.onNextContinuous([this] { moveActiveTab(true); });
+  buttonNavigator.onPreviousContinuous([this] { moveActiveTab(false); });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     activateSelectedItem();
@@ -618,7 +602,7 @@ void EpubReaderMenuActivity::buildMenuScreen(UiApp::ScreenType& screen) {
   for (size_t i = 0; i < activeItems.size(); i++) {
     const auto& menuItem = activeItems[i];
     fui::ListItem item;
-    item.label = menuItem.customLabel ? menuItem.customLabel : I18N.get(menuItem.labelId);
+    item.label = I18N.get(menuItem.labelId);
     if (menuItem.action == MenuAction::ROTATE_SCREEN) {
       item.value = I18N.get(orientationLabels[pendingOrientation]);
     } else if (menuItem.action == MenuAction::AUTO_PAGE_TURN) {

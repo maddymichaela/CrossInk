@@ -33,7 +33,6 @@ class MappedInputManager {
 
   void update() const { gpio.update(); }
   void suppressNextBackRelease() { suppressBackRelease = true; }
-  void clearBackReleaseSuppression() { suppressBackRelease = false; }
   void suppressNextConfirmRelease() { suppressConfirmRelease = true; }
   void suppressNextPowerRelease() { suppressPowerRelease = true; }
   void suppressNextPowerConfirmRelease() { suppressPowerConfirmRelease = true; }
