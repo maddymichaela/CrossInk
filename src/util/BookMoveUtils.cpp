@@ -5,6 +5,7 @@
 #include <Logging.h>
 
 #include "BookmarkStore.h"
+#include "Ao3Librarian.h"
 #include "ClippingStore.h"
 #include "CrossPointState.h"
 #include "RecentBooksStore.h"
@@ -41,6 +42,10 @@ bool migrateMovedEpubState(const std::string& oldPath, const std::string& newPat
   bool ok = true;
 
   const std::string newCachePath = Epub::cachePathForFilePath(newPath, "/.crosspoint");
+  if (!Ao3Librarian::migratePath(oldPath, newPath)) {
+    LOG_ERR("BookMove", "Failed to migrate AO3 metadata for moved book %s -> %s", oldPath.c_str(), newPath.c_str());
+    ok = false;
+  }
   if (!oldCachePath.empty() && Storage.exists(oldCachePath.c_str())) {
     if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
       LOG_ERR("BookMove", "Failed to rename cache dir %s -> %s (non-fatal)", oldCachePath.c_str(),

@@ -61,6 +61,7 @@
 #endif
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
+#include "util/Ao3ArchiveHelper.h"
 #include "util/BookMoveUtils.h"
 #include "util/Dictionary.h"
 #include "util/ScreenshotUtil.h"
@@ -1720,6 +1721,7 @@ void EpubReaderActivity::handleBookStatsReturn() {
     pendingReadFolderMove = true;
   } else if (!stats.isCompleted) {
     pendingReadFolderMove = false;
+    pendingAo3OriginalFolderRestore = epub && Ao3ArchiveHelper::isArchived(epub->getPath());
   }
   resumeReadingPaceTimer("book_stats_return");
   requestUpdate();
@@ -2230,14 +2232,40 @@ void EpubReaderActivity::onExit() {
   CLIPPINGS.unload();
   section.reset();
 
-  if (pendingReadFolderMove && epub) {
+  if (pendingAo3OriginalFolderRestore && epub) {
+    const std::string archivedPath = epub->getPath();
+    const std::string title = epub->getTitle();
+    epub.reset();
+    if (Ao3ArchiveHelper::restoreOriginalFolder(archivedPath, !SETTINGS.removeReadBooksFromRecents).empty()) {
+      LOG_ERR("ERS", "Failed to restore AO3 fic to its original folder");
+      snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s",
+               tr(STR_MOVE_TO_READ_FAILED_TITLE));
+      snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), tr(STR_MOVE_TO_READ_FAILED_BODY),
+               title.c_str());
+      APP_STATE.pendingAlertGoHomeOnBack.store(false, std::memory_order_relaxed);
+      APP_STATE.hasPendingAlert.store(true, std::memory_order_release);
+    }
+  } else if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
     const std::string oldCachePath = epub->getCachePath();
     const std::string title = epub->getTitle();
     const std::string author = epub->getAuthor();
-    const std::string dstPath = BookMoveUtils::buildReadFolderDestination(srcPath);
+    const bool ao3Fic = Ao3ArchiveHelper::isAo3Fic(srcPath);
+    const std::string dstPath = ao3Fic ? std::string() : BookMoveUtils::buildReadFolderDestination(srcPath);
     epub.reset();  // release the Epub (and any open handles) before renaming on the SD card
-    moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath, title, author);
+    if (ao3Fic) {
+      if (Ao3ArchiveHelper::moveToReadFolder(srcPath, !SETTINGS.removeReadBooksFromRecents).empty()) {
+        LOG_ERR("ERS", "Failed to move finished AO3 fic to '/Read' folder");
+        snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s",
+                 tr(STR_MOVE_TO_READ_FAILED_TITLE));
+        snprintf(APP_STATE.pendingAlertBody, sizeof(APP_STATE.pendingAlertBody), tr(STR_MOVE_TO_READ_FAILED_BODY),
+                 title.c_str());
+        APP_STATE.pendingAlertGoHomeOnBack.store(false, std::memory_order_relaxed);
+        APP_STATE.hasPendingAlert.store(true, std::memory_order_release);
+      }
+    } else {
+      moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath, title, author);
+    }
   } else {
     epub.reset();
   }
@@ -4036,6 +4064,7 @@ void EpubReaderActivity::resetCurrentBookStatsAfterDelete() {
   sessionPaceSampleSeconds = 0;
   sessionPaceSampleCount = 0;
   pendingReadFolderMove = false;
+  pendingAo3OriginalFolderRestore = false;
   hasSessionStartLocalDateTime = getCurrentLocalReadingStatsDateTime(sessionStartLocalDateTime);
   armReadingPaceWarmup("book_stats_delete");
   initializeCompletionPromptTrigger();
@@ -4403,12 +4432,14 @@ void EpubReaderActivity::setBookCompleted(bool isCompleted) {
     if (SETTINGS.moveFinishedToReadFolder && !isInReadFolder(epub->getPath())) {
       pendingReadFolderMove = true;
     }
+    pendingAo3OriginalFolderRestore = false;
   } else {
     if (SETTINGS.removeReadBooksFromRecents) {
       RECENT_BOOKS.addOrUpdateBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
     }
     recentsEntryRemoved = false;
     pendingReadFolderMove = false;
+    pendingAo3OriginalFolderRestore = Ao3ArchiveHelper::isArchived(epub->getPath());
   }
   if (isCompleted) {
     globalStats.completedBooks++;

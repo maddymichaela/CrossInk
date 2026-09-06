@@ -1090,6 +1090,60 @@ bool Ao3Librarian::tombstoneRecord(const std::string& epubPath) {
     return false;
 }
 
+bool Ao3Librarian::migratePath(const std::string& oldPath, const std::string& newPath) {
+    invalidateSummaryCache();
+    recentInfoPaths.clear();
+
+    const std::string infoPath = Epub::cachePathForFilePath(oldPath, AO3_CACHE_ROOT) + "/ao3_library_info";
+    Ao3LibraryMetadata metadata;
+    if (!readAo3LibraryInfoAtPath(infoPath, metadata)) {
+        return true;
+    }
+
+    memset(metadata.filepath, 0, sizeof(metadata.filepath));
+    strncpy(metadata.filepath, newPath.c_str(), sizeof(metadata.filepath) - 1);
+    HalFile infoFile;
+    if (!Storage.openFileForWrite("AO3L", infoPath, infoFile)) {
+        return false;
+    }
+    const bool sidecarUpdated =
+        infoFile.write(reinterpret_cast<const uint8_t*>(&metadata), sizeof(metadata)) == sizeof(metadata);
+    infoFile.close();
+    if (!sidecarUpdated) {
+        return false;
+    }
+
+    if (!Storage.exists(AO3_INDEX_PATH)) {
+        return true;
+    }
+    HalFile index = Storage.open(AO3_INDEX_PATH, O_RDWR);
+    if (!index) {
+        return false;
+    }
+    uint16_t recordCount = 0;
+    if (!readIndexHeader(index, recordCount)) {
+        index.close();
+        return false;
+    }
+
+    const uint32_t oldHash = ao3PathHash(oldPath);
+    const uint32_t newHash = ao3PathHash(newPath);
+    CompactIndexRecord record;
+    for (uint16_t i = 0; i < recordCount; ++i) {
+        index.seek(offsetOf(i));
+        if (index.read(reinterpret_cast<uint8_t*>(&record), sizeof(record)) != sizeof(record)) break;
+        if (!(record.flags & 1) && record.cacheHash == oldHash) {
+            record.cacheHash = newHash;
+            index.seek(offsetOf(i));
+            const bool updated = index.write(reinterpret_cast<const uint8_t*>(&record), sizeof(record)) == sizeof(record);
+            index.close();
+            return updated;
+        }
+    }
+    index.close();
+    return true;
+}
+
 int Ao3Librarian::sanitizeIndex() {
     invalidateSummaryCache();
     if (!Storage.exists(AO3_INDEX_PATH)) return 0;

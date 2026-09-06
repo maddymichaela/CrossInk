@@ -107,6 +107,9 @@ class Ao3Librarian {
    */
   static bool tombstoneRecord(const std::string& epubPath);
 
+  /** Updates an indexed work and its sidecar after its EPUB path changes. */
+  static bool migratePath(const std::string& oldPath, const std::string& newPath);
+
   /**
    * @brief Tombstones any index record whose epub file or ao3_library_info
    *        sidecar no longer exists on disk (e.g. book was moved/renamed).

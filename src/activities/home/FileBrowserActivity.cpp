@@ -18,6 +18,7 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "FileBrowserActionActivity.h"
+#include "util/Ao3ArchiveHelper.h"
 #include "MappedInputManager.h"
 #include "activities/reader/EpubReaderActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -619,7 +620,11 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
 
   Ao3DisplayStatus ao3Status;
   if (FsHelpers::hasEpubExtension(fullPath) && loadAo3DisplayStatus(fullPath, ao3Status)) {
+    const bool archivedAo3Fic = Ao3ArchiveHelper::isArchived(fullPath);
     items.push_back({FileBrowserAction::Ao3Status, StrId::STR_DISPLAY_STATUS, "AO3 Status"});
+    items.push_back({archivedAo3Fic ? FileBrowserAction::RestoreAo3Original : FileBrowserAction::MoveAo3ToRead,
+                     StrId::STR_DISPLAY_STATUS,
+                     archivedAo3Fic ? "Restore Original Folder" : "Move to Read Folder"});
   }
 
   if (BookActions::canSendNearby(fullPath)) {
@@ -741,6 +746,31 @@ void FileBrowserActivity::showFileActionMenu(const std::string& entry, bool igno
                     if (const auto* selection = std::get_if<OptionSelectionResult>(&selectionResult.data)) {
                       Ao3ReadingStateStore::save(cachePath, ao3ReadingStateForOption(selection->index));
                     }
+                  }
+                  requestUpdate(true);
+                });
+            return;
+          }
+          case FileBrowserAction::MoveAo3ToRead:
+          case FileBrowserAction::RestoreAo3Original: {
+            const bool restore = action == FileBrowserAction::RestoreAo3Original;
+            startActivityForResult(
+                std::make_unique<ConfirmationActivity>(renderer, mappedInput,
+                                                       restore ? "Restore Original Folder" : "Move to Read Folder",
+                                                       getFileName(entry)),
+                [this, fullPath, restore](const ActivityResult& confirmation) {
+                  if (!confirmation.isCancelled) {
+                    const std::string movedPath =
+                        restore ? Ao3ArchiveHelper::restoreOriginalFolder(
+                                      fullPath, !SETTINGS.removeReadBooksFromRecents)
+                                : Ao3ArchiveHelper::moveToReadFolder(fullPath,
+                                                                    !SETTINGS.removeReadBooksFromRecents);
+                    if (movedPath.empty()) {
+                      LOG_ERR("FileBrowser", "Failed to %s AO3 fic: %s", restore ? "restore" : "archive",
+                              fullPath.c_str());
+                    }
+                    loadFiles();
+                    selectorIndex = entryCount() == 0 ? 0 : std::min(selectorIndex, entryCount() - 1);
                   }
                   requestUpdate(true);
                 });

@@ -28,6 +28,8 @@ enum class FileBrowserAction : int {
   Ao3Status = 16,
   PinToHome = 17,
   UnpinFromHome = 18,
+  MoveAo3ToRead = 19,
+  RestoreAo3Original = 20,
 };
 
 class FileBrowserActionActivity final : public Activity {

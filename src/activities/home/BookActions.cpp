@@ -13,6 +13,7 @@
 #include <cstdio>
 
 #include "BookmarkStore.h"
+#include "Ao3Librarian.h"
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -23,6 +24,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
+#include "util/Ao3ArchiveHelper.h"
 #include "util/BookMoveUtils.h"
 
 namespace BookActions {
@@ -81,6 +83,8 @@ bool canSendNearby(const std::string& path) {
 
 void clearFileMetadata(const std::string& fullPath) {
   if (FsHelpers::hasEpubExtension(fullPath)) {
+    Ao3Librarian::tombstoneRecord(fullPath);
+    Ao3ArchiveHelper::forgetOriginalPath(fullPath);
     Epub(fullPath, "/.crosspoint").clearCache();
     BookmarkStore::deleteForFilePath(fullPath, "epub");
     ClippingStore::deleteForFilePath(fullPath, "epub");
@@ -228,11 +232,18 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
     }
   }
 
-  if (isEpub && completed && SETTINGS.moveFinishedToReadFolder && fullPath.rfind("/Read/", 0) != 0) {
+  if (isEpub && !completed && Ao3ArchiveHelper::isArchived(fullPath)) {
+    if (Ao3ArchiveHelper::restoreOriginalFolder(fullPath, !SETTINGS.removeReadBooksFromRecents).empty()) {
+      LOG_ERR("BookActions", "Failed to restore unfinished AO3 fic to its original folder");
+    }
+  } else if (isEpub && completed && SETTINGS.moveFinishedToReadFolder && fullPath.rfind("/Read/", 0) != 0) {
     const std::string oldCachePath = epub.getCachePath();
-    const std::string dstPath = BookMoveUtils::buildReadFolderDestination(fullPath);
+    const bool ao3Fic = Ao3ArchiveHelper::isAo3Fic(fullPath);
+    const std::string dstPath = ao3Fic ? Ao3ArchiveHelper::moveToReadFolder(
+                                              fullPath, !SETTINGS.removeReadBooksFromRecents)
+                                        : BookMoveUtils::buildReadFolderDestination(fullPath);
     LOG_INF("BookActions", "Moving completed epub: %s -> %s", fullPath.c_str(), dstPath.c_str());
-    if (!Storage.rename(fullPath.c_str(), dstPath.c_str())) {
+    if (dstPath.empty() || (!ao3Fic && !Storage.rename(fullPath.c_str(), dstPath.c_str()))) {
       LOG_ERR("BookActions", "Failed to move book to 'Read' folder");
       snprintf(APP_STATE.pendingAlertTitle, sizeof(APP_STATE.pendingAlertTitle), "%s",
                tr(STR_MOVE_TO_READ_FAILED_TITLE));
@@ -243,8 +254,10 @@ bool toggleBookCompleted(const std::string& fullPath, const std::string& display
       return true;
     }
 
-    BookMoveUtils::migrateMovedEpubState(fullPath, dstPath, oldCachePath, title, author,
-                                         !SETTINGS.removeReadBooksFromRecents);
+    if (!ao3Fic) {
+      BookMoveUtils::migrateMovedEpubState(fullPath, dstPath, oldCachePath, title, author,
+                                           !SETTINGS.removeReadBooksFromRecents);
+    }
   }
 
   return true;

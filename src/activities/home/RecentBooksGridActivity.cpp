@@ -643,6 +643,8 @@ void RecentBooksGridActivity::showBookActionMenu(const int bookIndex, const bool
           case FileBrowserAction::DeleteBookmarks:
           case FileBrowserAction::DeleteClippings:
           case FileBrowserAction::Ao3Status:
+          case FileBrowserAction::MoveAo3ToRead:
+          case FileBrowserAction::RestoreAo3Original:
             return;
         }
       });
