@@ -1002,6 +1002,7 @@ void Ao3LibraryActivity::renderFilterOverlay() {
   std::string relationship = pendingState.relationshipNoneOnly
                                  ? "None"
                                  : (pendingState.relationship[0] ? pendingState.relationship : "Any");
+  if (!pendingState.fandom[0]) relationship = "Choose fandom first";
   const std::string ratings = ratingMaskLabel(pendingState.ratingMask);
   const char* values[FILTER_ROW_COUNT] = {
       fandom.c_str(), relationship.c_str(), ratings.c_str(), sortLabel(pendingState.sortMode),
@@ -1026,12 +1027,12 @@ void Ao3LibraryActivity::renderFilterOverlay() {
     if (row == overlayRowIndex && !disabled) {
       renderer.fillRoundedRect(margin, rowY - 5, screenWidth - margin * 2, buttonHeight, 6, LightGray);
     }
-    renderer.drawText(UI_10_FONT_ID, margin + 10, rowY, labels[row], !disabled);
+    renderer.drawText(UI_10_FONT_ID, margin + 10, rowY, labels[row]);
     std::string value = truncatedToFit(renderer, values[row], UI_10_FONT_ID, screenWidth / 2 - margin,
                                        EpdFontFamily::REGULAR);
     renderer.drawText(UI_10_FONT_ID,
                       screenWidth - margin - 10 - renderer.getTextWidth(UI_10_FONT_ID, value.c_str()), rowY,
-                      value.c_str(), !disabled);
+                      value.c_str());
   }
   const auto buttonLabels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, buttonLabels.btn1, buttonLabels.btn2, buttonLabels.btn3, buttonLabels.btn4);
