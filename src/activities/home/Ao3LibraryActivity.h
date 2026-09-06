@@ -34,6 +34,8 @@ class Ao3LibraryActivity final : public Activity {
   enum class FilterMode : uint8_t { Automatic = 0, FolderTree = 1 };
 
   static constexpr int PAGE_SIZE = 3;
+  static constexpr int FILTER_ROW_COUNT = 7;
+  static constexpr int MANAGE_ROW_COUNT = 8;
   static constexpr int ROW_TOUCH_BASE = 320;
   static constexpr unsigned PANEL_HOLD_MS = 700;
 
@@ -48,6 +50,8 @@ class Ao3LibraryActivity final : public Activity {
   std::string ao3Folder;
   std::vector<std::string> ignoredFolders;
   int batchSize = 10;
+  bool autoIndexOnOpen = false;
+  bool autoIndexPending = false;
   int overlayRowIndex = 0;
   int manageRowIndex = 0;
   size_t pickerSelectedIndex = 0;

@@ -172,6 +172,7 @@ void Ao3LibraryActivity::onEnter() {
     selectorIndex = viewEntries.size() - 1;
   }
   loadPageCache(static_cast<int>(selectorIndex) / PAGE_SIZE);
+  autoIndexPending = autoIndexOnOpen && !ao3Folder.empty();
   requestUpdate();
 }
 
@@ -184,6 +185,15 @@ void Ao3LibraryActivity::onExit() {
 void Ao3LibraryActivity::loadViewEntries() {
   viewEntries.clear();
   allowedHashes.clear();
+  std::vector<uint32_t> finishedHashes;
+  if (activeState.hideFinished) {
+    Ao3Librarian::forEachLibraryInfo([&finishedHashes](const Ao3LibraryMetadata& metadata) {
+      if (deriveAo3DisplayStatus(metadata) == DisplayStatus::Finished) {
+        finishedHashes.push_back(stablePathHash(metadata.filepath));
+      }
+    });
+    sortUnique(finishedHashes);
+  }
   if (filterMode == FilterMode::FolderTree && !ao3Folder.empty()) {
     std::string root = ao3Folder;
     int minimumDepth = 2;
@@ -228,6 +238,9 @@ void Ao3LibraryActivity::loadViewEntries() {
       }
     }
     if (include) include = matchesAo3RatingFilter(record.flags, activeState.ratingMask);
+    if (include && activeState.hideFinished) {
+      include = !std::binary_search(finishedHashes.begin(), finishedHashes.end(), record.cacheHash);
+    }
     if (include) viewEntries.push_back(entry);
   }
   file.close();
@@ -243,6 +256,7 @@ void Ao3LibraryActivity::loadSettings() {
   ao3Folder.clear();
   ignoredFolders.clear();
   batchSize = 10;
+  autoIndexOnOpen = false;
   filterMode = FilterMode::Automatic;
   if (!Storage.exists(AO3_SETTINGS_PATH)) return;
   const String json = Storage.readFile(AO3_SETTINGS_PATH);
@@ -259,6 +273,7 @@ void Ao3LibraryActivity::loadSettings() {
   batchSize = document["batchSize"] | 10;
   if (batchSize != 10 && batchSize != 20 && batchSize != 30 && batchSize != 40 && batchSize != 50) batchSize = 10;
   filterMode = (document["filterMode"] | 0) == 1 ? FilterMode::FolderTree : FilterMode::Automatic;
+  autoIndexOnOpen = document["autoIndexOnOpen"] | false;
 }
 
 void Ao3LibraryActivity::saveSettings() const {
@@ -266,6 +281,7 @@ void Ao3LibraryActivity::saveSettings() const {
   document["ao3Folder"] = ao3Folder;
   document["batchSize"] = batchSize;
   document["filterMode"] = filterMode == FilterMode::FolderTree ? 1 : 0;
+  document["autoIndexOnOpen"] = autoIndexOnOpen;
   JsonArray ignored = document["ignoredFolders"].to<JsonArray>();
   for (const std::string& path : ignoredFolders) ignored.add(path);
   String json;
@@ -286,6 +302,7 @@ void Ao3LibraryActivity::loadSortFilterState() {
       strncpy(activeState.fandom, fandom.c_str(), sizeof(activeState.fandom) - 1);
       strncpy(activeState.relationship, relationship.c_str(), sizeof(activeState.relationship) - 1);
       activeState.relationshipNoneOnly = document["relationshipNoneOnly"] | false;
+      activeState.hideFinished = document["hideFinished"] | false;
       if (!document["ratingMask"].isNull()) {
         activeState.ratingMask = document["ratingMask"].as<uint8_t>() & AO3_ALL_RATINGS_MASK;
       } else {
@@ -310,6 +327,7 @@ void Ao3LibraryActivity::saveSortFilterState() const {
   document["fandom"] = activeState.fandom;
   document["relationship"] = activeState.relationship;
   document["relationshipNoneOnly"] = activeState.relationshipNoneOnly;
+  document["hideFinished"] = activeState.hideFinished;
   document["ratingMask"] = activeState.ratingMask;
   document["sortMode"] = static_cast<uint8_t>(activeState.sortMode);
   document["ascending"] = activeState.ascending;
@@ -565,6 +583,8 @@ void Ao3LibraryActivity::activateFilterRow() {
   } else if (overlayRowIndex == 4) {
     pendingState.ascending = !pendingState.ascending;
   } else if (overlayRowIndex == 5) {
+    pendingState.hideFinished = !pendingState.hideFinished;
+  } else if (overlayRowIndex == 6) {
     applyPendingFilter();
     return;
   }
@@ -598,6 +618,10 @@ void Ao3LibraryActivity::activateManageRow() {
     loadPageCache(0);
     requestUpdate(true);
   } else if (manageRowIndex == 6) {
+    autoIndexOnOpen = !autoIndexOnOpen;
+    saveSettings();
+    requestUpdate(true);
+  } else if (manageRowIndex == 7) {
     Ao3Librarian::sanitizeIndex();
     loadViewEntries();
     if (!viewEntries.empty() && selectorIndex >= viewEntries.size()) selectorIndex = viewEntries.size() - 1;
@@ -714,6 +738,12 @@ void Ao3LibraryActivity::chooseSelectedStatus() {
 }
 
 void Ao3LibraryActivity::loop() {
+  if (autoIndexPending) {
+    autoIndexPending = false;
+    startIndexing(false);
+    return;
+  }
+
   if (screenState == ScreenState::Library) {
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
         mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -792,22 +822,22 @@ void Ao3LibraryActivity::loop() {
   if (screenState == ScreenState::FilterPanel) {
     buttonNavigator.onNextRelease([this] {
       do {
-        overlayRowIndex = (overlayRowIndex + 1) % 6;
+        overlayRowIndex = (overlayRowIndex + 1) % FILTER_ROW_COUNT;
       } while (overlayRowIndex == 1 && !pendingState.fandom[0]);
       requestUpdate(true);
     });
     buttonNavigator.onPreviousRelease([this] {
       do {
-        overlayRowIndex = (overlayRowIndex + 5) % 6;
+        overlayRowIndex = (overlayRowIndex + FILTER_ROW_COUNT - 1) % FILTER_ROW_COUNT;
       } while (overlayRowIndex == 1 && !pendingState.fandom[0]);
       requestUpdate(true);
     });
     buttonNavigator.onNextContinuous([this] {
-      overlayRowIndex = 5;
+      overlayRowIndex = FILTER_ROW_COUNT - 1;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousContinuous([this] {
-      overlayRowIndex = 5;
+      overlayRowIndex = FILTER_ROW_COUNT - 1;
       requestUpdate(true);
     });
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) activateFilterRow();
@@ -869,19 +899,19 @@ void Ao3LibraryActivity::loop() {
 
   if (screenState == ScreenState::ManagePanel) {
     buttonNavigator.onNextRelease([this] {
-      manageRowIndex = (manageRowIndex + 1) % 7;
+      manageRowIndex = (manageRowIndex + 1) % MANAGE_ROW_COUNT;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousRelease([this] {
-      manageRowIndex = (manageRowIndex + 6) % 7;
+      manageRowIndex = (manageRowIndex + MANAGE_ROW_COUNT - 1) % MANAGE_ROW_COUNT;
       requestUpdate(true);
     });
     buttonNavigator.onNextContinuous([this] {
-      manageRowIndex = (manageRowIndex + 3) % 7;
+      manageRowIndex = (manageRowIndex + 3) % MANAGE_ROW_COUNT;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousContinuous([this] {
-      manageRowIndex = (manageRowIndex + 4) % 7;
+      manageRowIndex = (manageRowIndex + MANAGE_ROW_COUNT - 3) % MANAGE_ROW_COUNT;
       requestUpdate(true);
     });
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) activateManageRow();
@@ -973,19 +1003,20 @@ void Ao3LibraryActivity::renderFilterOverlay() {
                                  ? "None"
                                  : (pendingState.relationship[0] ? pendingState.relationship : "Any");
   const std::string ratings = ratingMaskLabel(pendingState.ratingMask);
-  const char* values[6] = {
+  const char* values[FILTER_ROW_COUNT] = {
       fandom.c_str(), relationship.c_str(), ratings.c_str(), sortLabel(pendingState.sortMode),
-      pendingState.ascending ? "Ascending" : "Descending", "Apply",
+      pendingState.ascending ? "Ascending" : "Descending", pendingState.hideFinished ? "Yes" : "No", "Apply",
   };
-  const char* labels[6] = {"Fandom", "Relationship", "Content ratings", "Sort by", "Order", ""};
+  const char* labels[FILTER_ROW_COUNT] = {
+      "Fandom", "Relationship", "Content ratings", "Sort by", "Order", "Hide finished", ""};
   const int rowHeight = 48;
   const int buttonHeight = 38;
-  const int contentHeight = rowHeight * 5 + buttonHeight + 16;
+  const int contentHeight = rowHeight * (FILTER_ROW_COUNT - 1) + buttonHeight + 16;
   const int firstY = startY + std::max(8, (overlayHeight - contentHeight) / 2);
-  for (int row = 0; row < 6; ++row) {
+  for (int row = 0; row < FILTER_ROW_COUNT; ++row) {
     const int rowY = firstY + row * rowHeight;
     const bool disabled = row == 1 && !pendingState.fandom[0];
-    if (row == 5) {
+    if (row == FILTER_ROW_COUNT - 1) {
       const int width = 170;
       const int x = (screenWidth - width) / 2;
       renderer.fillRoundedRect(x, rowY - 5, width, buttonHeight, 6, Black);
@@ -1057,19 +1088,22 @@ void Ao3LibraryActivity::renderManagePanel() {
   const Rect header{0, metrics.topPadding, pageWidth, metrics.headerHeight};
   GUI.drawHeader(renderer, header, "Manage AO3 Library");
   const int margin = 20;
-  const char* labels[7] = {"Index New Books", "Refresh Metadata", "AO3 Folder", "Ignored Folders",
-                           "Index Batch Size", "Filter Mode", "Library Cleanup"};
+  const char* labels[MANAGE_ROW_COUNT] = {
+      "Index New Books", "Refresh Metadata", "AO3 Folder", "Ignored Folders",
+      "Index Batch Size", "Filter Mode", "Auto-Index on Open", "Library Cleanup"};
   const std::string folderLabel = ao3Folder.empty() ? "Not set - select before indexing" : ao3Folder;
   char batchLabel[12];
   snprintf(batchLabel, sizeof(batchLabel), "%d", batchSize);
   char ignoredLabel[24];
   snprintf(ignoredLabel, sizeof(ignoredLabel), "%u selected", static_cast<unsigned>(ignoredFolders.size()));
-  const char* values[7] = {"", "Re-read indexed AO3 EPUBs", folderLabel.c_str(), ignoredLabel, batchLabel,
-                           filterMode == FilterMode::Automatic ? "Automatic" : "Folder Tree", ""};
+  const char* values[MANAGE_ROW_COUNT] = {
+      "", "Re-read indexed AO3 EPUBs", folderLabel.c_str(), ignoredLabel, batchLabel,
+      filterMode == FilterMode::Automatic ? "Automatic" : "Folder Tree",
+      autoIndexOnOpen ? "On" : "Off", ""};
   const int contentTop = header.y + header.height + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-  const int rowHeight = contentHeight / 7;
-  for (int row = 0; row < 7; ++row) {
+  const int rowHeight = contentHeight / MANAGE_ROW_COUNT;
+  for (int row = 0; row < MANAGE_ROW_COUNT; ++row) {
     const int y = contentTop + row * rowHeight;
     if (row == manageRowIndex) {
       renderer.fillRoundedRect(margin, y + 2, pageWidth - margin * 2, rowHeight - 5, 6, LightGray);

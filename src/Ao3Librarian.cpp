@@ -917,6 +917,42 @@ Ao3LibrarySummary Ao3Librarian::getLibrarySummary() {
   return cachedLibrarySummary;
 }
 
+std::vector<std::string> Ao3Librarian::findNextSeriesBooks(const std::string& epubPath, const size_t maxCount) {
+  std::vector<std::string> result;
+  if (maxCount == 0) return result;
+
+  Ao3LibraryMetadata current;
+  if (!getLibraryInfo(epubPath, current) || current.seriesName[0] == '\0' || current.seriesPart == 0) {
+    return result;
+  }
+
+  struct Candidate {
+    uint16_t part;
+    std::string path;
+  };
+  std::vector<Candidate> candidates;
+  forEachLibraryInfo([&](const Ao3LibraryMetadata& metadata) {
+    if (metadata.filepath[0] == '\0' || metadata.seriesPart <= current.seriesPart ||
+        strcasecmp(metadata.seriesName, current.seriesName) != 0 || !Storage.exists(metadata.filepath)) {
+      return;
+    }
+    candidates.push_back({metadata.seriesPart, metadata.filepath});
+  });
+
+  std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+    if (a.part != b.part) return a.part < b.part;
+    return strcasecmp(a.path.c_str(), b.path.c_str()) < 0;
+  });
+  result.reserve(std::min(maxCount, candidates.size()));
+  for (const Candidate& candidate : candidates) {
+    if (result.size() >= maxCount) break;
+    if (std::find(result.begin(), result.end(), candidate.path) == result.end()) {
+      result.push_back(candidate.path);
+    }
+  }
+  return result;
+}
+
 void Ao3Librarian::invalidateSummaryCache() { librarySummaryValid = false; }
 
 bool Ao3Librarian::writeIndexRecord(const CompactIndexRecord& rec) {

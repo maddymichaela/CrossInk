@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include "Ao3Librarian.h"
 #include "CrossPointSettings.h"
 #include "ReaderUtils.h"
 #include "components/UITheme.h"
@@ -13,7 +14,9 @@
 
 namespace {
 // Display name without the file extension, mirroring the file browser rows
-std::string displayName(const std::string& filename) {
+std::string displayName(const std::string& path) {
+  const auto slash = path.find_last_of('/');
+  const std::string filename = slash == std::string::npos ? path : path.substr(slash + 1);
   const auto pos = filename.rfind('.');
   return filename.substr(0, pos);
 }
@@ -23,8 +26,15 @@ void EndOfBookOptions::loadOnce(const std::string& currentBookPath) {
   if (isLoaded.load(std::memory_order_acquire)) {
     return;
   }
-  folder = FsHelpers::extractFolderPath(currentBookPath);
-  names = NextBookFinder::findNextBooks(currentBookPath, MAX_SUGGESTIONS);
+  paths = Ao3Librarian::findNextSeriesBooks(currentBookPath, MAX_SUGGESTIONS);
+  if (paths.empty()) {
+    const std::string folder = FsHelpers::extractFolderPath(currentBookPath);
+    const std::vector<std::string> names = NextBookFinder::findNextBooks(currentBookPath, MAX_SUGGESTIONS);
+    paths.reserve(names.size());
+    for (const std::string& name : names) {
+      paths.push_back(folder == "/" ? "/" + name : folder + "/" + name);
+    }
+  }
   selector = 0;
   // Release-publish so the main task, which gates all access on isLoaded, never
   // observes a partially built list
@@ -33,20 +43,13 @@ void EndOfBookOptions::loadOnce(const std::string& currentBookPath) {
 
 bool EndOfBookOptions::loaded() const { return isLoaded.load(std::memory_order_acquire); }
 
-bool EndOfBookOptions::menuActive() const { return loaded() && !names.empty(); }
-
-std::string EndOfBookOptions::fullPath(const size_t index) const {
-  if (index >= names.size()) {
-    return {};
-  }
-  return folder == "/" ? "/" + names[index] : folder + "/" + names[index];
-}
+bool EndOfBookOptions::menuActive() const { return loaded() && !paths.empty(); }
 
 EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputManager& input, std::string* openPath) {
   if (input.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (selector < static_cast<int>(names.size())) {
+    if (selector < static_cast<int>(paths.size())) {
       if (openPath) {
-        *openPath = fullPath(selector);
+        *openPath = paths[selector];
       }
       return Action::OpenBook;
     }
@@ -65,7 +68,7 @@ EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputMana
   const auto sideTriggered = [&](const MappedInputManager::Button button) {
     return sideUsePress ? input.wasPressed(button) : input.wasReleased(button);
   };
-  const int itemCount = static_cast<int>(names.size()) + 1;  // + "Home" entry
+  const int itemCount = static_cast<int>(paths.size()) + 1;  // + "Home" entry
   if (sideTriggered(MappedInputManager::Button::PageBack) || input.wasReleased(MappedInputManager::Button::Left)) {
     selector = ButtonNavigator::previousIndex(selector, itemCount);  // wraps to the bottom
     return Action::Redraw;
@@ -102,9 +105,9 @@ void EndOfBookOptions::render(GfxRenderer& renderer, const MappedInputManager& i
   UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, subtitleY, tr(STR_EOB_CONTINUE_WITH));
 
   const int listHeight = safe.y + safe.height - listTop - metrics.verticalSpacing;
-  GUI.drawList(renderer, Rect{safe.x, listTop, safe.width, listHeight}, static_cast<int>(names.size()) + 1, selector,
+  GUI.drawList(renderer, Rect{safe.x, listTop, safe.width, listHeight}, static_cast<int>(paths.size()) + 1, selector,
                [this](const int index) {
-                 return index < static_cast<int>(names.size()) ? displayName(names[index])
+                 return index < static_cast<int>(paths.size()) ? displayName(paths[index])
                                                                : std::string(tr(STR_EOB_HOME));
                });
 

@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 #include "Ao3LibraryMetadata.h"
 
 #include "Ao3CompactIndexRecord.h"
@@ -79,6 +80,9 @@ class Ao3Librarian {
    *        without loading the full library into RAM.
    */
   static Ao3LibrarySummary getLibrarySummary();
+
+  /** Finds later indexed works in the same AO3 series, ordered by series part. */
+  static std::vector<std::string> findNextSeriesBooks(const std::string& epubPath, size_t maxCount);
 
   /** Invalidates the cached Home-screen AO3 counts after index/state changes. */
   static void invalidateSummaryCache();

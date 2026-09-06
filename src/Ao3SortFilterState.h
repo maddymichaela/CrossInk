@@ -16,6 +16,7 @@ struct SortFilterState {
     char     relationship[32] = {};
     bool     relationshipNoneOnly = false;
     uint8_t  ratingMask = 0;  // 0 = all; bits 0-4 = G/T/M/E/Not Rated
+    bool     hideFinished = false;
     SortMode sortMode = SortMode::ALPHABETIC;
     bool     ascending = true;
 };

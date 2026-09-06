@@ -17,7 +17,8 @@ class EndOfBookOptions {
 
   static constexpr size_t MAX_SUGGESTIONS = 3;
 
-  // Scans the book's folder for suggestions; no-op when already loaded. Call while
+  // Finds later AO3 series entries, or scans the book's folder for suggestions;
+  // no-op when already loaded. Call while
   // serialized by RenderLock. The loaded flag is the release/acquire publication point
   // that lets the other task read the finished list safely.
   void loadOnce(const std::string& currentBookPath);
@@ -39,12 +40,10 @@ class EndOfBookOptions {
   void render(GfxRenderer& renderer, const MappedInputManager& input) const;
 
  private:
-  std::string folder;
   // Written by the render task in loadOnce(), immutable afterwards; the main task only
   // reads it after isLoaded is observed true (acquire), so no further locking is needed.
-  std::vector<std::string> names;
+  std::vector<std::string> paths;
   int selector = 0;
   std::atomic<bool> isLoaded{false};
 
-  std::string fullPath(size_t index) const;
 };
