@@ -16,6 +16,25 @@ namespace {
 constexpr const char* AO3_CACHE_ROOT = "/.crosspoint";
 constexpr const char* AO3_INDEX_PATH = "/.crosspoint/ao3_library_index.bin";
 constexpr uint8_t INDEX_VERSION = 1;
+constexpr size_t RECENT_INFO_PATH_COUNT = 12;
+
+struct RecentInfoPath {
+  uint32_t cacheHash = 0;
+  std::string infoPath;
+};
+
+std::vector<RecentInfoPath> recentInfoPaths;
+Ao3LibrarySummary cachedLibrarySummary;
+bool librarySummaryValid = false;
+
+void rememberInfoPath(const uint32_t cacheHash, const std::string& infoPath) {
+  recentInfoPaths.erase(
+      std::remove_if(recentInfoPaths.begin(), recentInfoPaths.end(),
+                     [cacheHash](const RecentInfoPath& item) { return item.cacheHash == cacheHash; }),
+      recentInfoPaths.end());
+  recentInfoPaths.insert(recentInfoPaths.begin(), RecentInfoPath{cacheHash, infoPath});
+  if (recentInfoPaths.size() > RECENT_INFO_PATH_COUNT) recentInfoPaths.pop_back();
+}
 
 bool containsCaseInsensitive(const char* haystack, const char* needle) {
   if (!haystack || !needle || !*needle) {
@@ -77,7 +96,7 @@ bool readAo3LibraryInfoAtPath(const std::string& infoPath, Ao3LibraryMetadata& m
 }
 
 template <typename Callback>
-void forEachAo3InfoSidecar(Callback callback) {
+void forEachAo3InfoSidecar(Callback callback, const bool* stop = nullptr) {
   HalFile root = Storage.open(AO3_CACHE_ROOT);
   if (!root || !root.isDirectory()) {
     return;
@@ -98,6 +117,7 @@ void forEachAo3InfoSidecar(Callback callback) {
     if (Storage.exists(infoPath.c_str())) {
       callback(infoPath);
     }
+    if (stop && *stop) break;
     yield();
   }
 
@@ -711,6 +731,7 @@ bool Ao3Librarian::scrape(const Epub& epub, bool force) {
     rec.wordCount  = meta->wordCount;
     rec.seriesPart = meta->seriesPart;
     rec.cacheHash  = ao3PathHash(epub.getPath());
+    rec.flags      = withAo3Rating(rec.flags, meta->rating);
 
     if (!writeIndexRecord(rec)) {
         return false;
@@ -723,15 +744,16 @@ bool Ao3Librarian::scrape(const Epub& epub, bool force) {
 
 bool Ao3Librarian::getLibraryInfo(const Epub& epub, Ao3LibraryMetadata& meta) {
   const std::string infoPath = epub.getCachePath() + "/ao3_library_info";
-  FsFile f;
-  if (Storage.openFileForRead("AO3L", infoPath, f)) {
-    if (f.read((uint8_t*)&meta, sizeof(meta)) == sizeof(meta)) {
-      f.close();
-      return meta.isValid();
-    }
-    f.close();
-  }
-  return false;
+  const bool loaded = readAo3LibraryInfoAtPath(infoPath, meta);
+  if (loaded) rememberInfoPath(ao3PathHash(epub.getPath()), infoPath);
+  return loaded;
+}
+
+bool Ao3Librarian::getLibraryInfo(const std::string& epubPath, Ao3LibraryMetadata& meta) {
+  const std::string infoPath = Epub::cachePathForFilePath(epubPath, AO3_CACHE_ROOT) + "/ao3_library_info";
+  const bool loaded = readAo3LibraryInfoAtPath(infoPath, meta);
+  if (loaded) rememberInfoPath(ao3PathHash(epubPath), infoPath);
+  return loaded;
 }
 
 bool Ao3Librarian::parseTitlePage(const Epub& epub,
@@ -825,9 +847,20 @@ void Ao3Librarian::findLibraryInfoByCacheHashes(const uint32_t* cacheHashes, con
 
   for (size_t i = 0; i < count; ++i) found[i] = false;
   size_t remaining = count;
-  forEachAo3InfoSidecar([&](const std::string& infoPath) {
-    if (remaining == 0) return;
+  for (size_t i = 0; i < count; ++i) {
+    const auto cached = std::find_if(recentInfoPaths.begin(), recentInfoPaths.end(),
+                                     [hash = cacheHashes[i]](const RecentInfoPath& item) {
+                                       return item.cacheHash == hash;
+                                     });
+    if (cached != recentInfoPaths.end() && readAo3LibraryInfoAtPath(cached->infoPath, metadata[i])) {
+      found[i] = true;
+      remaining--;
+    }
+  }
+  if (remaining == 0) return;
 
+  bool done = false;
+  forEachAo3InfoSidecar([&](const std::string& infoPath) {
     Ao3LibraryMetadata candidate;
     if (!readAo3LibraryInfoAtPath(infoPath, candidate) || candidate.filepath[0] == '\0') return;
     const uint32_t candidateHash = ao3PathHash(candidate.filepath);
@@ -835,11 +868,13 @@ void Ao3Librarian::findLibraryInfoByCacheHashes(const uint32_t* cacheHashes, con
       if (!found[i] && cacheHashes[i] == candidateHash) {
         metadata[i] = candidate;
         found[i] = true;
+        rememberInfoPath(candidateHash, infoPath);
         remaining--;
+        done = remaining == 0;
         break;
       }
     }
-  });
+  }, &done);
 }
 
 bool Ao3Librarian::hasAnyAo3Fics() {
@@ -849,11 +884,13 @@ bool Ao3Librarian::hasAnyAo3Fics() {
     if (!found) {
       found = true;
     }
-  });
+  }, &found);
   return found;
 }
 
 Ao3LibrarySummary Ao3Librarian::getLibrarySummary() {
+  if (librarySummaryValid) return cachedLibrarySummary;
+
   Ao3LibrarySummary summary;
   forEachAo3InfoSidecar([&summary](const std::string& infoPath) {
     Ao3LibraryMetadata meta;
@@ -875,10 +912,15 @@ Ao3LibrarySummary Ao3Librarian::getLibrarySummary() {
         break;
     }
   });
-  return summary;
+  cachedLibrarySummary = summary;
+  librarySummaryValid = true;
+  return cachedLibrarySummary;
 }
 
+void Ao3Librarian::invalidateSummaryCache() { librarySummaryValid = false; }
+
 bool Ao3Librarian::writeIndexRecord(const CompactIndexRecord& rec) {
+    invalidateSummaryCache();
     // --- Validate existing file ---
     bool needsCreate = false;
     if (!Storage.exists(AO3_INDEX_PATH)) {
@@ -980,6 +1022,7 @@ bool Ao3Librarian::writeIndexRecord(const CompactIndexRecord& rec) {
 }
 
 bool Ao3Librarian::tombstoneRecord(const std::string& epubPath) {
+    invalidateSummaryCache();
     if (!Storage.exists(AO3_INDEX_PATH)) return false;
 
     HalFile f = Storage.open(AO3_INDEX_PATH, O_RDWR);
@@ -1012,6 +1055,7 @@ bool Ao3Librarian::tombstoneRecord(const std::string& epubPath) {
 }
 
 int Ao3Librarian::sanitizeIndex() {
+    invalidateSummaryCache();
     if (!Storage.exists(AO3_INDEX_PATH)) return 0;
 
     HalFile f = Storage.open(AO3_INDEX_PATH, O_RDWR);

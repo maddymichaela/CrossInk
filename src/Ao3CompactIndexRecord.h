@@ -1,6 +1,8 @@
 #pragma once
 #include <stdint.h>
 
+#include "Ao3RatingFilter.h"
+
 #pragma pack(push, 1)
 struct CompactIndexRecord {
     char     title[64];         // truncated title
@@ -13,7 +15,7 @@ struct CompactIndexRecord {
     char     relationship1[32]; // primary pairing — scraped from epub HTML
     char     relationship2[32]; // secondary pairing — scraped from epub HTML
     uint32_t cacheHash;         // stable uint32_t path hash used as compact record key
-    uint8_t  flags;             // bit 0 = tombstone (deleted)
+    uint8_t  flags;             // bit 0 = tombstone; bits 1-3 = compact AO3 rating
 };
 #pragma pack(pop)
 

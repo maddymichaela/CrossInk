@@ -1125,8 +1125,8 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   // FileIndex instead of duplicating every filename on the heap for UI rows.
   std::vector<std::string> names(drawCount);
   std::vector<std::string> values(drawCount);
-  std::vector<Ao3DisplayStatus> ao3Statuses(drawCount, Ao3DisplayStatus::Unread);
-  std::vector<bool> hasAo3Status(drawCount, false);
+  std::vector<Ao3DisplayStatus> epubStatuses(drawCount, Ao3DisplayStatus::Unread);
+  std::vector<bool> hasEpubStatus(drawCount, false);
   std::vector<fui::ListItem> items;
   items.reserve(drawCount);
   for (size_t i = 0; i < drawCount; i++) {
@@ -1136,8 +1136,8 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     if (SETTINGS.hideFileExtension == 0) values[i] = getFileExtension(entry);
     const std::string fullPath = buildFullPath(basepath, entry);
     if (FsHelpers::hasEpubExtension(entry)) {
-      hasAo3Status[i] = loadAo3DisplayStatus(fullPath, ao3Statuses[i]);
-      if (hasAo3Status[i]) values[i] = ao3DisplayStatusLabel(ao3Statuses[i]);
+      hasEpubStatus[i] = loadEpubDisplayStatus(fullPath, epubStatuses[i]);
+      if (hasEpubStatus[i]) values[i] = ao3DisplayStatusLabel(epubStatuses[i]);
     }
     if ((entry.back() == '/' && isPreferredSleepFolder(fullPath)) || isPinnedSleepFavorite(fullPath)) {
       values[i] = values[i].empty() ? "*" : "* " + values[i];
@@ -1145,7 +1145,7 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     fui::ListItem item;
     item.label = names[i].c_str();
     if (!values[i].empty()) item.value = values[i].c_str();
-    item.icon = hasAo3Status[i] ? ao3StatusIcon(ao3Statuses[i], twoLineRows ? 32 : 24)
+    item.icon = hasEpubStatus[i] ? ao3StatusIcon(epubStatuses[i], twoLineRows ? 32 : 24)
                                 : listIconFor(UITheme::getFileIcon(entry), twoLineRows ? 32 : 24);
     item.actionValue = static_cast<int16_t>(entryIndex);
     items.push_back(item);

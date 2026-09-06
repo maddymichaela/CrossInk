@@ -49,7 +49,7 @@ Ao3IndexActivity::Ao3IndexActivity(GfxRenderer& renderer, MappedInputManager& ma
     : Activity("Ao3Index", renderer, mappedInput),
       scanRoot(std::move(scanRoot)),
       ignoredFolders(std::move(ignoredFolders)),
-      batchSize(std::clamp(batchSize, 1, 20)),
+      batchSize(std::clamp(batchSize, 1, 50)),
       refreshExisting(refreshExisting) {
   while (this->scanRoot.length() > 1 && this->scanRoot.back() == '/') this->scanRoot.pop_back();
   for (std::string& path : this->ignoredFolders) {

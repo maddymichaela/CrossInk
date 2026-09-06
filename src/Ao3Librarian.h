@@ -42,6 +42,11 @@ class Ao3Librarian {
   static bool getLibraryInfo(const Epub& epub, Ao3LibraryMetadata& meta);
 
   /**
+   * @brief Reads an EPUB's AO3 sidecar without constructing or loading an Epub.
+   */
+  static bool getLibraryInfo(const std::string& epubPath, Ao3LibraryMetadata& meta);
+
+  /**
    * @brief Streams identified AO3 metadata one sidecar at a time.
    *
    * Use this on memory-constrained screens instead of retaining the full
@@ -74,6 +79,9 @@ class Ao3Librarian {
    *        without loading the full library into RAM.
    */
   static Ao3LibrarySummary getLibrarySummary();
+
+  /** Invalidates the cached Home-screen AO3 counts after index/state changes. */
+  static void invalidateSummaryCache();
 
   /**
    * @brief Helper to map AO3 string ratings to our char codes.

@@ -118,6 +118,21 @@ SortMode nextSortMode(const SortMode mode, const int direction) {
   return modes[(index + direction + count) % count];
 }
 
+constexpr char RATING_VALUES[] = {0, 'G', 'T', 'M', 'E', '-'};
+constexpr const char* RATING_LABELS[] = {
+    "All ratings", "G - General Audiences", "T - Teen And Up Audiences",
+    "M - Mature", "E - Explicit (adults only)", "Not Rated (blank square)",
+};
+
+size_t ratingPickerIndex(const char rating) {
+  for (size_t i = 0; i < sizeof(RATING_VALUES); ++i) {
+    if (RATING_VALUES[i] == rating) return i;
+  }
+  return 0;
+}
+
+const char* ratingLabel(const char rating) { return RATING_LABELS[ratingPickerIndex(rating)]; }
+
 std::string truncatedToFit(const GfxRenderer& renderer, std::string text, const int fontId,
                            const int maxWidth, const EpdFontFamily::Style style) {
   if (renderer.getTextWidth(fontId, text.c_str(), style) <= maxWidth) return text;
@@ -210,6 +225,7 @@ void Ao3LibraryActivity::loadViewEntries() {
         include = entry.rel1Hash == relationshipHash || entry.rel2Hash == relationshipHash;
       }
     }
+    if (include) include = matchesAo3RatingFilter(record.flags, activeState.rating, activeState.ratingMode);
     if (include) viewEntries.push_back(entry);
   }
   file.close();
@@ -239,7 +255,7 @@ void Ao3LibraryActivity::loadSettings() {
   }
   sortUnique(ignoredFolders);
   batchSize = document["batchSize"] | 10;
-  if (batchSize != 10 && batchSize != 15 && batchSize != 20) batchSize = 10;
+  if (batchSize != 10 && batchSize != 20 && batchSize != 30 && batchSize != 40 && batchSize != 50) batchSize = 10;
   filterMode = (document["filterMode"] | 0) == 1 ? FilterMode::FolderTree : FilterMode::Automatic;
 }
 
@@ -268,6 +284,10 @@ void Ao3LibraryActivity::loadSortFilterState() {
       strncpy(activeState.fandom, fandom.c_str(), sizeof(activeState.fandom) - 1);
       strncpy(activeState.relationship, relationship.c_str(), sizeof(activeState.relationship) - 1);
       activeState.relationshipNoneOnly = document["relationshipNoneOnly"] | false;
+      const std::string rating = document["rating"] | "";
+      if (rating.size() == 1 && strchr("GTME-", rating[0])) activeState.rating = rating[0];
+      activeState.ratingMode = (document["ratingMode"] | 0) == 1 ? Ao3RatingFilterMode::Exclude
+                                                                  : Ao3RatingFilterMode::Only;
       const uint8_t mode = document["sortMode"] | static_cast<uint8_t>(SortMode::DATE_ADDED);
       if (mode <= static_cast<uint8_t>(SortMode::AUTHOR)) activeState.sortMode = static_cast<SortMode>(mode);
       activeState.ascending = document["ascending"] | false;
@@ -281,6 +301,8 @@ void Ao3LibraryActivity::saveSortFilterState() const {
   document["fandom"] = activeState.fandom;
   document["relationship"] = activeState.relationship;
   document["relationshipNoneOnly"] = activeState.relationshipNoneOnly;
+  document["rating"] = activeState.rating ? std::string(1, activeState.rating) : "";
+  document["ratingMode"] = static_cast<uint8_t>(activeState.ratingMode);
   document["sortMode"] = static_cast<uint8_t>(activeState.sortMode);
   document["ascending"] = activeState.ascending;
   String json;
@@ -526,10 +548,19 @@ void Ao3LibraryActivity::activateFilterRow() {
     }
     screenState = ScreenState::RelationshipPicker;
   } else if (overlayRowIndex == 2) {
-    pendingState.sortMode = nextSortMode(pendingState.sortMode, 1);
-  } else if (overlayRowIndex == 3) {
-    pendingState.ascending = !pendingState.ascending;
+    pickerItems.clear();
+    for (const char* label : RATING_LABELS) pickerItems.emplace_back(label);
+    pickerSelectedIndex = ratingPickerIndex(pendingState.rating);
+    screenState = ScreenState::RatingPicker;
+  } else if (overlayRowIndex == 3 && pendingState.rating) {
+    pendingState.ratingMode = pendingState.ratingMode == Ao3RatingFilterMode::Only
+                                  ? Ao3RatingFilterMode::Exclude
+                                  : Ao3RatingFilterMode::Only;
   } else if (overlayRowIndex == 4) {
+    pendingState.sortMode = nextSortMode(pendingState.sortMode, 1);
+  } else if (overlayRowIndex == 5) {
+    pendingState.ascending = !pendingState.ascending;
+  } else if (overlayRowIndex == 6) {
     applyPendingFilter();
     return;
   }
@@ -546,7 +577,7 @@ void Ao3LibraryActivity::activateManageRow() {
   } else if (manageRowIndex == 3) {
     chooseIgnoredFolders();
   } else if (manageRowIndex == 4) {
-    batchSize = batchSize == 10 ? 15 : (batchSize == 15 ? 20 : 10);
+    batchSize = batchSize >= 50 ? 10 : batchSize + 10;
     saveSettings();
     requestUpdate(true);
   } else if (manageRowIndex == 5) {
@@ -744,7 +775,8 @@ void Ao3LibraryActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (screenState == ScreenState::FandomPicker || screenState == ScreenState::RelationshipPicker) {
+    if (screenState == ScreenState::FandomPicker || screenState == ScreenState::RelationshipPicker ||
+        screenState == ScreenState::RatingPicker) {
       screenState = ScreenState::FilterPanel;
     } else {
       screenState = ScreenState::Library;
@@ -755,28 +787,33 @@ void Ao3LibraryActivity::loop() {
 
   if (screenState == ScreenState::FilterPanel) {
     buttonNavigator.onNextRelease([this] {
-      overlayRowIndex = (overlayRowIndex + 1) % 5;
-      if (overlayRowIndex == 1 && !pendingState.fandom[0]) overlayRowIndex = 2;
+      do {
+        overlayRowIndex = (overlayRowIndex + 1) % 7;
+      } while ((overlayRowIndex == 1 && !pendingState.fandom[0]) ||
+               (overlayRowIndex == 3 && !pendingState.rating));
       requestUpdate(true);
     });
     buttonNavigator.onPreviousRelease([this] {
-      overlayRowIndex = (overlayRowIndex + 4) % 5;
-      if (overlayRowIndex == 1 && !pendingState.fandom[0]) overlayRowIndex = 0;
+      do {
+        overlayRowIndex = (overlayRowIndex + 6) % 7;
+      } while ((overlayRowIndex == 1 && !pendingState.fandom[0]) ||
+               (overlayRowIndex == 3 && !pendingState.rating));
       requestUpdate(true);
     });
     buttonNavigator.onNextContinuous([this] {
-      overlayRowIndex = 4;
+      overlayRowIndex = 6;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousContinuous([this] {
-      overlayRowIndex = 4;
+      overlayRowIndex = 6;
       requestUpdate(true);
     });
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) activateFilterRow();
     return;
   }
 
-  if (screenState == ScreenState::FandomPicker || screenState == ScreenState::RelationshipPicker) {
+  if (screenState == ScreenState::FandomPicker || screenState == ScreenState::RelationshipPicker ||
+      screenState == ScreenState::RatingPicker) {
     if (!pickerItems.empty()) {
       buttonNavigator.onNextRelease([this] {
         pickerSelectedIndex = (pickerSelectedIndex + 1) % pickerItems.size();
@@ -803,7 +840,7 @@ void Ao3LibraryActivity::loop() {
         if (pickerSelectedIndex > 0) {
           strncpy(pendingState.fandom, pickerItems[pickerSelectedIndex].c_str(), sizeof(pendingState.fandom) - 1);
         }
-      } else {
+      } else if (screenState == ScreenState::RelationshipPicker) {
         pendingState.relationship[0] = '\0';
         pendingState.relationshipNoneOnly = false;
         if (pickerSelectedIndex > 0 && pickerItems[pickerSelectedIndex] == "None") {
@@ -812,6 +849,9 @@ void Ao3LibraryActivity::loop() {
           strncpy(pendingState.relationship, pickerItems[pickerSelectedIndex].c_str(),
                   sizeof(pendingState.relationship) - 1);
         }
+      } else {
+        pendingState.rating = RATING_VALUES[std::min(pickerSelectedIndex, sizeof(RATING_VALUES) - 1)];
+        if (!pendingState.rating) pendingState.ratingMode = Ao3RatingFilterMode::Only;
       }
       screenState = ScreenState::FilterPanel;
       requestUpdate(true);
@@ -841,7 +881,8 @@ void Ao3LibraryActivity::loop() {
 }
 
 void Ao3LibraryActivity::render(RenderLock&& lock) {
-  if (screenState == ScreenState::FandomPicker || screenState == ScreenState::RelationshipPicker) {
+  if (screenState == ScreenState::FandomPicker || screenState == ScreenState::RelationshipPicker ||
+      screenState == ScreenState::RatingPicker) {
     renderPicker();
     return;
   }
@@ -919,35 +960,36 @@ void Ao3LibraryActivity::renderFilterOverlay() {
   const int margin = 20;
   renderer.fillRect(0, startY, screenWidth, overlayHeight, false);
 
-  const char* values[5] = {};
   std::string fandom = pendingState.fandom[0] ? pendingState.fandom : "Any";
   std::string relationship = pendingState.relationshipNoneOnly
                                  ? "None"
                                  : (pendingState.relationship[0] ? pendingState.relationship : "Any");
-  values[0] = fandom.c_str();
-  values[1] = relationship.c_str();
-  values[2] = sortLabel(pendingState.sortMode);
-  values[3] = pendingState.ascending ? "Ascending" : "Descending";
-  values[4] = "Apply";
-  const char* labels[5] = {"Fandom", "Relationship", "Sort by", "Order", ""};
-  const int firstY = startY + 24;
-  const int rowHeight = std::max(45, (overlayHeight - 35) / 5);
-  for (int row = 0; row < 5; ++row) {
+  const char* values[7] = {
+      fandom.c_str(), relationship.c_str(), ratingLabel(pendingState.rating),
+      pendingState.ratingMode == Ao3RatingFilterMode::Only ? "Only selected" : "Exclude selected",
+      sortLabel(pendingState.sortMode), pendingState.ascending ? "Ascending" : "Descending", "Apply",
+  };
+  const char* labels[7] = {"Fandom", "Relationship", "Content rating", "Rating rule", "Sort by", "Order", ""};
+  const int rowHeight = 48;
+  const int buttonHeight = 38;
+  const int contentHeight = rowHeight * 6 + buttonHeight + 16;
+  const int firstY = startY + std::max(8, (overlayHeight - contentHeight) / 2);
+  for (int row = 0; row < 7; ++row) {
     const int rowY = firstY + row * rowHeight;
-    const bool disabled = row == 1 && !pendingState.fandom[0];
-    if (row == overlayRowIndex && !disabled) {
-      renderer.fillRoundedRect(margin, rowY - 6, screenWidth - margin * 2, 38, 6, LightGray);
-    }
-    if (row == 4) {
-      const int width = 150;
+    const bool disabled = (row == 1 && !pendingState.fandom[0]) || (row == 3 && !pendingState.rating);
+    if (row == 6) {
+      const int width = 170;
       const int x = (screenWidth - width) / 2;
-      if (row == overlayRowIndex) renderer.fillRoundedRect(x, rowY - 6, width, 38, 6, Black);
-      renderer.drawCenteredText(UI_10_FONT_ID, rowY, values[row], row != overlayRowIndex, EpdFontFamily::BOLD);
+      renderer.fillRoundedRect(x, rowY - 5, width, buttonHeight, 6, Black);
+      renderer.drawCenteredText(UI_10_FONT_ID, rowY, values[row], false, EpdFontFamily::BOLD);
       continue;
     }
+    if (row == overlayRowIndex && !disabled) {
+      renderer.fillRoundedRect(margin, rowY - 5, screenWidth - margin * 2, buttonHeight, 6, LightGray);
+    }
     renderer.drawText(UI_10_FONT_ID, margin + 10, rowY, labels[row], !disabled);
-    std::string value = values[row];
-    if (value.length() > 24) value = value.substr(0, 22) + "..";
+    std::string value = truncatedToFit(renderer, values[row], UI_10_FONT_ID, screenWidth / 2 - margin,
+                                       EpdFontFamily::REGULAR);
     renderer.drawText(UI_10_FONT_ID,
                       screenWidth - margin - 10 - renderer.getTextWidth(UI_10_FONT_ID, value.c_str()), rowY,
                       value.c_str(), !disabled);
@@ -958,33 +1000,26 @@ void Ao3LibraryActivity::renderFilterOverlay() {
 }
 
 void Ao3LibraryActivity::renderPicker() {
-  renderer.clearScreen();
+  renderer.clearScreen(0xFF);
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
-  const char* title = screenState == ScreenState::FandomPicker ? "Choose Fandom" : "Choose Relationship";
+  const char* title = screenState == ScreenState::FandomPicker
+                          ? "Choose Fandom"
+                          : (screenState == ScreenState::RelationshipPicker ? "Choose Relationship"
+                                                                            : "Choose Content Rating");
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, title, false);
   } else {
     GUI.drawHeader(renderer, header, title);
   }
 
-  const int visible = 8;
   const int total = static_cast<int>(pickerItems.size());
-  const int top = total <= visible ? 0 : std::clamp(static_cast<int>(pickerSelectedIndex) - visible / 2, 0, total - visible);
-  const int rowHeight = 62;
-  const int startY = header.y + header.height + 10;
-  for (int row = 0; row < visible && top + row < total; ++row) {
-    const int index = top + row;
-    const int y = startY + row * rowHeight;
-    if (index == static_cast<int>(pickerSelectedIndex)) {
-      renderer.fillRoundedRect(16, y, renderer.getScreenWidth() - 32, rowHeight - 8, 6, LightGray);
-    }
-    std::string label = pickerItems[index];
-    if (label.length() > 44) label = label.substr(0, 42) + "..";
-    renderer.drawText(UI_10_FONT_ID, 28, y + 12, label.c_str(), true,
-                      index == static_cast<int>(pickerSelectedIndex) ? EpdFontFamily::BOLD
-                                                                    : EpdFontFamily::REGULAR);
-  }
+  const int contentTop = header.y + header.height + metrics.verticalSpacing;
+  const int contentHeight = renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight -
+                            metrics.verticalSpacing;
+  GUI.drawList(renderer, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, total,
+               static_cast<int>(pickerSelectedIndex),
+               [this](const int index) { return pickerItems[static_cast<size_t>(index)]; });
   if (total > 0) {
     char count[24];
     snprintf(count, sizeof(count), "%u / %u", static_cast<unsigned>(pickerSelectedIndex + 1),

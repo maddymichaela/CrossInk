@@ -1,5 +1,7 @@
 #include "Ao3ReadingState.h"
 
+#include "Ao3Librarian.h"
+
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Serialization.h>
@@ -45,6 +47,7 @@ Ao3ReadingState Ao3ReadingStateStore::load(const std::string& cachePath) {
 }
 
 bool Ao3ReadingStateStore::save(const std::string& cachePath, const Ao3ReadingState state) {
+  Ao3Librarian::invalidateSummaryCache();
   Storage.mkdir(cachePath.c_str());
   if (state == Ao3ReadingState::None) {
     return remove(cachePath);
@@ -63,6 +66,7 @@ bool Ao3ReadingStateStore::save(const std::string& cachePath, const Ao3ReadingSt
 }
 
 bool Ao3ReadingStateStore::remove(const std::string& cachePath) {
+  Ao3Librarian::invalidateSummaryCache();
   const std::string path = statePath(cachePath);
   return !Storage.exists(path.c_str()) || Storage.remove(path.c_str());
 }

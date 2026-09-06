@@ -19,4 +19,8 @@ Ao3DisplayStatus deriveAo3DisplayStatus(const Ao3LibraryMetadata& metadata);
 // Returns false for ordinary or not-yet-indexed EPUBs.
 bool loadAo3DisplayStatus(const std::string& path, Ao3DisplayStatus& status);
 
+// Every EPUB has a basic reading status. Indexed AO3 works additionally use
+// Waiting and Update Available. isAo3 is optional.
+bool loadEpubDisplayStatus(const std::string& path, Ao3DisplayStatus& status, bool* isAo3 = nullptr);
+
 const char* ao3DisplayStatusLabel(Ao3DisplayStatus status);

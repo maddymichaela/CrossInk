@@ -23,7 +23,14 @@ class Ao3LibraryActivity final : public Activity {
   using DisplayStatus = Ao3DisplayStatus;
 
  private:
-  enum class ScreenState : uint8_t { Library, FilterPanel, FandomPicker, RelationshipPicker, ManagePanel };
+  enum class ScreenState : uint8_t {
+    Library,
+    FilterPanel,
+    FandomPicker,
+    RelationshipPicker,
+    RatingPicker,
+    ManagePanel
+  };
   enum class FilterMode : uint8_t { Automatic = 0, FolderTree = 1 };
 
   static constexpr int PAGE_SIZE = 3;

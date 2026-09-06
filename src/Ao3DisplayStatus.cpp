@@ -36,10 +36,27 @@ Ao3DisplayStatus deriveAo3DisplayStatus(const Ao3LibraryMetadata& metadata) {
 }
 
 bool loadAo3DisplayStatus(const std::string& path, Ao3DisplayStatus& status) {
-  Epub epub(path, "/.crosspoint");
   Ao3LibraryMetadata metadata;
-  if (!Ao3Librarian::getLibraryInfo(epub, metadata)) return false;
+  if (!Ao3Librarian::getLibraryInfo(path, metadata)) return false;
   status = deriveAo3DisplayStatus(metadata);
+  return true;
+}
+
+bool loadEpubDisplayStatus(const std::string& path, Ao3DisplayStatus& status, bool* isAo3) {
+  if (loadAo3DisplayStatus(path, status)) {
+    if (isAo3) *isAo3 = true;
+    return true;
+  }
+
+  if (isAo3) *isAo3 = false;
+  const BookReadingStats stats = BookReadingStats::load(Epub::cachePathForFilePath(path, "/.crosspoint"));
+  if (stats.isCompleted) {
+    status = Ao3DisplayStatus::Finished;
+  } else if (stats.sessionCount > 0 || stats.totalPagesTurned > 0 || stats.totalReadingSeconds > 0) {
+    status = Ao3DisplayStatus::Reading;
+  } else {
+    status = Ao3DisplayStatus::Unread;
+  }
   return true;
 }
 
