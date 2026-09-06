@@ -1,4 +1,8 @@
-> **This is a personal fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader)** with a focus on improved fonts and minimal reading stats.
+# CrossInk with AO3 Library
+
+This personal fork combines the current [CrossInk](https://github.com/uxjulia/CrossInk) reading experience with the AO3 library concepts pioneered by [AvesO3](https://github.com/SiliconAves/AvesO3). CrossInk remains the base and continues to own EPUB rendering, progress, reading statistics, bookmarks, clippings, themes, controls, file management, and networking lifecycle. The AvesO3-inspired layer adds AO3 detection, metadata browsing, fic status, indexing, and on-device updates without replacing those newer CrossInk systems.
+
+CrossInk itself is based on [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader). Thanks to the CrossPoint, CrossInk, and AvesO3 contributors whose work made this integration possible.
 
 ### Supported Devices
 
@@ -6,9 +10,118 @@
 - Xteink X4
 - Seeed Studio Sticky
 
-## What's different in this fork
+The prebuilt AO3 release binary is currently produced for the X3/X4 target. Sticky remains available as a source build target but is not covered by the AO3 hardware validation yet.
 
-My goal with this fork was to maintain the core Crosspoint firmware while integrating my preferred typography and some lightweight reading statistics. I’ve focused on keeping the underlying system stable while layering in a few "nice-to-have" features and UI refinements along the way.
+## Project Lineage
+
+| Project | Role in this fork |
+|---|---|
+| [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) | Original open-source reader firmware and hardware foundation. |
+| [CrossInk](https://github.com/uxjulia/CrossInk) | Base codebase: modern reader, typography, statistics, themes, bookmarks, clippings, sync, controls, and file management. |
+| [AvesO3](https://github.com/SiliconAves/AvesO3) | Reference implementation and design inspiration for the AO3 library, indexing, fic statuses, pinning, and chapter updates. |
+| [This fork](https://github.com/maddymichaela/CrossInk) | Selectively ports and adapts the AO3 features to current CrossInk while preserving CrossInk behavior. |
+
+## What's Different From CrossPoint
+
+This fork includes the broader CrossInk feature set described below, plus a dedicated AO3 subsystem. Compared with standard CrossPoint Reader, the major additions are:
+
+- An AO3-style library browser with summaries, metadata squares, filters, sorting, status symbols, and up to 400 indexed works.
+- Native AO3, Calibre/FanFicFare, and Kobo-converted `.kepub.epub` recognition.
+- Direct AO3 update checks and chapter downloads from the reader.
+- Five-state fic tracking in the AO3 Library and File Browser.
+- Automatic and manual AO3 indexing, ignored folders, and configurable batches up to 50 EPUBs.
+- Longfic Home pinning, AO3 series continuation, and AO3-aware finished-book archiving.
+- CrossInk typography, themes, reader controls, bookmarks, clippings, reading statistics, nearby sync, and reader customization.
+
+## AO3 Features
+
+### AO3-Style Library
+
+- Displays each indexed work using an AO3-inspired metadata square, title, author, word count, fandom, relationships, tags, and multi-line summary.
+- Supports up to 400 indexed works using a compact disk index and page-sized metadata loading to limit RAM use.
+- Offers two browsing modes:
+  - **Automatic:** fandom and relationship values come from EPUB metadata.
+  - **Folder Tree:** folders beneath the selected AO3 root act as the browsing hierarchy.
+- Sorts by title, author, word count, date added, or series, in the appropriate ascending or descending order.
+- Filters by fandom, relationship, and any combination of AO3 content ratings: General, Teen, Mature, Explicit, and Not Rated.
+- Includes a **Hide Finished Fics** filter toggle.
+- Returns from the normal CrossInk reader to the same AO3 Library position.
+- Suggests later indexed works from the same AO3 series at the end of a book.
+
+### EPUB Compatibility and Indexing
+
+- Recognizes EPUBs downloaded directly from AO3.
+- Reads AO3 work ID, update date, and completion status from Calibre/FanFicFare OPF metadata without requiring a modified metadata spine.
+- Recognizes Kobo-converted `.kepub.epub` AO3 exports and handles their nested summary/tag markup.
+- Cleans empty punctuation-only tags and decoded entities such as `&amp;` from displayed metadata.
+- Indexes only the selected AO3 folder and supports multi-select **Ignored Folders**.
+- Indexes in configurable batches of 10, 20, 30, 40, or 50 works, with cancellation and a Continue prompt between batches.
+- Can begin auto-indexing whenever the AO3 Library opens.
+- Supports refreshing metadata for already indexed works.
+
+### AO3 Library Quick Start
+
+1. Open **AO3 Library** from the Home screen.
+2. Hold **Up** to open **Manage AO3 Library**.
+3. Choose **AO3 Folder** and confirm that the selected path appears beneath the setting.
+4. Optionally choose **Ignored Folders**, the index batch size, browsing mode, and auto-index behavior.
+5. Select **Index New Books**. Indexed works then appear in the AO3 Library.
+
+Within the library, short Up/Down presses move by page, short Left/Right presses move by work, and holding Left/Right repeatedly skips pages. Hold Up for library management, hold Down for sorting and filters, hold Confirm to change the selected fic's status, and press Back to return Home.
+
+### Fic Status and Pinning
+
+AO3 works use five display states, shown in both the AO3 Library and File Browser:
+
+| Status | Meaning |
+|---|---|
+| Unread | The work has not been started. |
+| Reading | Reading is in progress. |
+| Waiting for Chapter | All currently downloaded chapters of a WIP have been read. |
+| New Chapter Available | An AO3 update was found. |
+| Finished | The downloaded work is marked complete and finished. |
+
+- Statuses are derived from CrossInk progress and completion data where possible, with AO3-specific Waiting and Update Available state stored alongside the book cache.
+- A status can also be changed manually from the File Browser, AO3 Library, or reader menu.
+- Reaching the end of an unfinished AO3 work automatically assigns **Waiting for Chapter**.
+- Longfics can be pinned to the Home screen so newly read one-shots do not push them out of view.
+
+### On-Device Chapter Updates
+
+- A WIP-specific end-of-book prompt can check AO3 for updates over Wi-Fi.
+- **Check AO3 Updates** is also available from the reader menu.
+- When a newer version exists, the current AO3 EPUB can be replaced on-device.
+- Locked AO3 works are not currently supported.
+
+Updating intentionally overwrites the local EPUB, but the replacement flow is safer than the original direct-overwrite approach: it downloads to a temporary file, validates that it is an EPUB for the expected AO3 work ID, keeps a backup, installs the new file, rebuilds AO3 metadata, preserves CrossInk user state, and restores the backup if installation fails.
+
+### AO3-Aware Read Folder
+
+- Finished AO3 works can be moved explicitly or through CrossInk's **Move Finished Books to Read Folder** setting.
+- The path beneath the configured AO3 folder is mirrored under `/Read`, so `/AO3/Fandom/Series/book.epub` becomes `/Read/AO3/Fandom/Series/book.epub`.
+- **Restore Original Folder** recreates the original directory tree and returns the EPUB without overwriting an existing file.
+- Progress, statistics, bookmarks, clippings, Home pinning/Recents data, resume state, AO3 status, metadata, and index order follow the moved file.
+- Marking an archived AO3 fic unfinished through CrossInk's completion control restores it to its original folder.
+
+## Improvements Over AvesO3
+
+This is a selective adaptation rather than a wholesale merge of the older firmware fork. Notable improvements include:
+
+- Current CrossInk EPUB rendering, status bar, page counts, time-left estimates, reader settings, themes, controls, bookmarks, clippings, and statistics remain authoritative.
+- AO3 metadata parsing is lazy and indexing-driven, avoiding a full AO3 scrape whenever an ordinary EPUB is opened.
+- The compact AO3 browser loads rich metadata only for the visible page instead of retaining every full record in RAM.
+- Chapter downloads use temporary-file validation, work-ID matching, backup/rollback, and state-preserving cache rebuilds.
+- Moving a fic rekeys its AO3 index record in place, preserving date-added order and avoiding a mandatory reindex.
+- Original locations are kept in a separate archive registry, so cache cleanup does not destroy restore information.
+- Nested AO3 folders are retained when archiving instead of flattening every finished fic into one directory.
+- Multi-select rating filters, Hide Finished Fics, auto-index on open, ignored-folder multi-select, Kobo export handling, and series continuation are integrated into the current CrossInk UI.
+- AO3 navigation uses current CrossInk activity/input handling, including normal Back behavior and restoration of the selected library row.
+
+No AvesO3 reader engine or old CrossPoint shared files were copied wholesale. AO3 books remain normal EPUBs opened by the standard CrossInk reader.
+
+## CrossInk Highlights
+
+The AO3 subsystem sits on top of the existing CrossInk feature set:
 
 <table>
   <tr>
@@ -22,8 +135,6 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
     </td>
   </tr>
 </table>
-
-### Highlights
 
 - New reader fonts: Lexend Deca and Bitter.
 - Unicode emoji and miscellaneous symbols support (a limited subset).
@@ -49,7 +160,7 @@ My goal with this fork was to maintain the core Crosspoint firmware while integr
 - Reading [progress sync](./docs/nearby-position-sync.md) between two CrossInk devices.
 - Added customizable Auto Page Turn Interval (anything between 5-120 seconds).
 - Added ability to view Recent Books as a 3x3 grid view.
-- To view a more detailed list for each version, visit the [releases](https://github.com/uxjulia/CrossInk/releases) page to read release notes.
+- To view a more detailed list for each version, visit this fork's [releases](https://github.com/maddymichaela/CrossInk/releases) page.
 
 ---
 
@@ -110,9 +221,9 @@ See [Simulator](./docs/simulator.md) for setup, platform notes, keyboard control
 
 ## Installation
 
-The fastest way to install Crossink is by using Inky, Crossink's web companion app: https://inky.crossink.dev/#flash-tools
+The fastest way to install CrossInk is by using [Inky](https://inky.crossink.dev/#flash-tools), CrossInk's web companion app.
 
-Download a `firmware-*.bin` from the [releases page](https://github.com/uxjulia/CrossInk/releases), then flash it with the web installer or command line.
+Download the X3/X4 `firmware-*.bin` from [this fork's releases](https://github.com/maddymichaela/CrossInk/releases), then flash it with the web installer or command line. The boot screen should identify an AO3 build with a version such as `1.5.0-ao3.10`, rather than `dev+main`.
 
 See [Installation](./docs/installation.md) for step-by-step flashing and revert instructions.
 
@@ -198,4 +309,4 @@ See [Data Cache](./docs/data-cache.md) for the `.crosspoint` layout and [File Fo
 
 ## Notice on Contributions
 
-This repository does not accept pull requests. Feature requests may be opened in [discussions](https://github.com/uxjulia/CrossInk/discussions), but major features requiring ongoing support should be directed upstream to [CrossPoint](https://github.com/crosspoint-reader/crosspoint-reader).
+This repository is a personal integration fork. General CrossInk questions belong in [CrossInk discussions](https://github.com/uxjulia/CrossInk/discussions), while major firmware features requiring upstream support should be directed to [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader). For the original AO3-oriented firmware and its documentation, see [AvesO3](https://github.com/SiliconAves/AvesO3).
