@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- AO3 Content Ratings is now a multi-select filter: choosing one rating shows only that rating, choosing several shows their union, and clearing the selections restores All ratings.
 - File Browser now labels every EPUB as Unread, Reading, or Finished, while indexed AO3 works retain Waiting and New Chapter states. Direct sidecar reads and small AO3 summary/page caches avoid repeated EPUB setup and full cache-directory scans when returning from readers and library screens.
 - AO3 indexing batches can now be set to 10, 20, 30, 40, or 50 works. Sort & Filter uses compact CrossInk-style lists, keeps Apply as a dark button without a second row highlight, and can include or exclude G, T, M, E, or Not Rated works.
 - AO3 Library modal screens now redraw on a white background, page counts share the header without covering the battery, and side-button hints show Up/Down. Short Up/Down jumps between fic pages; holding Up opens management and holding Down opens sorting.

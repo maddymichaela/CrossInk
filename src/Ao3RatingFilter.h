@@ -2,11 +2,10 @@
 
 #include <stdint.h>
 
-enum class Ao3RatingFilterMode : uint8_t { Only = 0, Exclude = 1 };
-
 constexpr uint8_t AO3_INDEX_TOMBSTONE_FLAG = 0x01;
 constexpr uint8_t AO3_INDEX_RATING_SHIFT = 1;
 constexpr uint8_t AO3_INDEX_RATING_MASK = 0x0E;
+constexpr uint8_t AO3_ALL_RATINGS_MASK = 0x1F;
 
 inline uint8_t ao3RatingCode(const char rating) {
   switch (rating) {
@@ -29,12 +28,14 @@ inline uint8_t ao3RatingCodeFromFlags(const uint8_t flags) {
   return static_cast<uint8_t>((flags & AO3_INDEX_RATING_MASK) >> AO3_INDEX_RATING_SHIFT);
 }
 
-inline bool matchesAo3RatingFilter(const uint8_t flags, const char selectedRating,
-                                   const Ao3RatingFilterMode mode) {
-  if (selectedRating == 0) return true;
+inline uint8_t ao3RatingBit(const char rating) {
+  const uint8_t code = ao3RatingCode(rating);
+  return code == 0 ? 0 : static_cast<uint8_t>(1U << (code - 1));
+}
+
+inline bool matchesAo3RatingFilter(const uint8_t flags, const uint8_t selectedRatings) {
+  if (selectedRatings == 0) return true;
   const uint8_t storedCode = ao3RatingCodeFromFlags(flags);
-  const uint8_t selectedCode = ao3RatingCode(selectedRating);
-  if (storedCode == 0 || selectedCode == 0) return mode == Ao3RatingFilterMode::Exclude;
-  const bool matches = storedCode == selectedCode;
-  return mode == Ao3RatingFilterMode::Only ? matches : !matches;
+  if (storedCode == 0) return false;
+  return (selectedRatings & static_cast<uint8_t>(1U << (storedCode - 1))) != 0;
 }

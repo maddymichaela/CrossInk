@@ -8,21 +8,23 @@ TEST(Ao3RatingFilter, EncodesRatingWithoutChangingTombstone) {
   EXPECT_EQ(ao3RatingCodeFromFlags(flags), ao3RatingCode('M'));
 }
 
-TEST(Ao3RatingFilter, IncludesOnlySelectedRating) {
+TEST(Ao3RatingFilter, IncludesOneSelectedRating) {
   const uint8_t explicitFlags = withAo3Rating(0, 'E');
-  EXPECT_TRUE(matchesAo3RatingFilter(explicitFlags, 'E', Ao3RatingFilterMode::Only));
-  EXPECT_FALSE(matchesAo3RatingFilter(explicitFlags, 'M', Ao3RatingFilterMode::Only));
+  EXPECT_TRUE(matchesAo3RatingFilter(explicitFlags, ao3RatingBit('E')));
+  EXPECT_FALSE(matchesAo3RatingFilter(explicitFlags, ao3RatingBit('M')));
 }
 
-TEST(Ao3RatingFilter, ExcludesSelectedRating) {
+TEST(Ao3RatingFilter, IncludesAnySelectedRating) {
   const uint8_t teenFlags = withAo3Rating(0, 'T');
-  EXPECT_FALSE(matchesAo3RatingFilter(teenFlags, 'T', Ao3RatingFilterMode::Exclude));
-  EXPECT_TRUE(matchesAo3RatingFilter(teenFlags, 'G', Ao3RatingFilterMode::Exclude));
+  const uint8_t teenAndMature = ao3RatingBit('T') | ao3RatingBit('M');
+  EXPECT_TRUE(matchesAo3RatingFilter(teenFlags, teenAndMature));
+  EXPECT_TRUE(matchesAo3RatingFilter(withAo3Rating(0, 'M'), teenAndMature));
+  EXPECT_FALSE(matchesAo3RatingFilter(withAo3Rating(0, 'E'), teenAndMature));
 }
 
 TEST(Ao3RatingFilter, SupportsNotRatedAndLegacyRecords) {
   const uint8_t notRatedFlags = withAo3Rating(0, '-');
-  EXPECT_TRUE(matchesAo3RatingFilter(notRatedFlags, '-', Ao3RatingFilterMode::Only));
-  EXPECT_FALSE(matchesAo3RatingFilter(0, 'G', Ao3RatingFilterMode::Only));
-  EXPECT_TRUE(matchesAo3RatingFilter(0, 'G', Ao3RatingFilterMode::Exclude));
+  EXPECT_TRUE(matchesAo3RatingFilter(notRatedFlags, ao3RatingBit('-')));
+  EXPECT_FALSE(matchesAo3RatingFilter(0, ao3RatingBit('G')));
+  EXPECT_TRUE(matchesAo3RatingFilter(0, 0));
 }

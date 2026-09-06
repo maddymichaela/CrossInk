@@ -15,8 +15,7 @@ struct SortFilterState {
     char     fandom[32] = {};
     char     relationship[32] = {};
     bool     relationshipNoneOnly = false;
-    char     rating = 0;  // 0 = all, '-' = not rated, otherwise G/T/M/E
-    Ao3RatingFilterMode ratingMode = Ao3RatingFilterMode::Only;
+    uint8_t  ratingMask = 0;  // 0 = all; bits 0-4 = G/T/M/E/Not Rated
     SortMode sortMode = SortMode::ALPHABETIC;
     bool     ascending = true;
 };

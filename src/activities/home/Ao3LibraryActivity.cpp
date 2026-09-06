@@ -124,14 +124,16 @@ constexpr const char* RATING_LABELS[] = {
     "M - Mature", "E - Explicit (adults only)", "Not Rated (blank square)",
 };
 
-size_t ratingPickerIndex(const char rating) {
-  for (size_t i = 0; i < sizeof(RATING_VALUES); ++i) {
-    if (RATING_VALUES[i] == rating) return i;
+std::string ratingMaskLabel(const uint8_t mask) {
+  if (mask == 0) return "All ratings";
+  std::string label;
+  for (size_t i = 1; i < sizeof(RATING_VALUES); ++i) {
+    if ((mask & ao3RatingBit(RATING_VALUES[i])) == 0) continue;
+    if (!label.empty()) label += ", ";
+    label += i == 5 ? "Not Rated" : std::string(1, RATING_VALUES[i]);
   }
-  return 0;
+  return label;
 }
-
-const char* ratingLabel(const char rating) { return RATING_LABELS[ratingPickerIndex(rating)]; }
 
 std::string truncatedToFit(const GfxRenderer& renderer, std::string text, const int fontId,
                            const int maxWidth, const EpdFontFamily::Style style) {
@@ -225,7 +227,7 @@ void Ao3LibraryActivity::loadViewEntries() {
         include = entry.rel1Hash == relationshipHash || entry.rel2Hash == relationshipHash;
       }
     }
-    if (include) include = matchesAo3RatingFilter(record.flags, activeState.rating, activeState.ratingMode);
+    if (include) include = matchesAo3RatingFilter(record.flags, activeState.ratingMask);
     if (include) viewEntries.push_back(entry);
   }
   file.close();
@@ -284,10 +286,17 @@ void Ao3LibraryActivity::loadSortFilterState() {
       strncpy(activeState.fandom, fandom.c_str(), sizeof(activeState.fandom) - 1);
       strncpy(activeState.relationship, relationship.c_str(), sizeof(activeState.relationship) - 1);
       activeState.relationshipNoneOnly = document["relationshipNoneOnly"] | false;
-      const std::string rating = document["rating"] | "";
-      if (rating.size() == 1 && strchr("GTME-", rating[0])) activeState.rating = rating[0];
-      activeState.ratingMode = (document["ratingMode"] | 0) == 1 ? Ao3RatingFilterMode::Exclude
-                                                                  : Ao3RatingFilterMode::Only;
+      if (!document["ratingMask"].isNull()) {
+        activeState.ratingMask = document["ratingMask"].as<uint8_t>() & AO3_ALL_RATINGS_MASK;
+      } else {
+        const std::string rating = document["rating"] | "";
+        if (rating.size() == 1 && strchr("GTME-", rating[0])) {
+          const uint8_t selected = ao3RatingBit(rating[0]);
+          activeState.ratingMask = (document["ratingMode"] | 0) == 1
+                                       ? static_cast<uint8_t>(AO3_ALL_RATINGS_MASK & ~selected)
+                                       : selected;
+        }
+      }
       const uint8_t mode = document["sortMode"] | static_cast<uint8_t>(SortMode::DATE_ADDED);
       if (mode <= static_cast<uint8_t>(SortMode::AUTHOR)) activeState.sortMode = static_cast<SortMode>(mode);
       activeState.ascending = document["ascending"] | false;
@@ -301,8 +310,7 @@ void Ao3LibraryActivity::saveSortFilterState() const {
   document["fandom"] = activeState.fandom;
   document["relationship"] = activeState.relationship;
   document["relationshipNoneOnly"] = activeState.relationshipNoneOnly;
-  document["rating"] = activeState.rating ? std::string(1, activeState.rating) : "";
-  document["ratingMode"] = static_cast<uint8_t>(activeState.ratingMode);
+  document["ratingMask"] = activeState.ratingMask;
   document["sortMode"] = static_cast<uint8_t>(activeState.sortMode);
   document["ascending"] = activeState.ascending;
   String json;
@@ -550,17 +558,13 @@ void Ao3LibraryActivity::activateFilterRow() {
   } else if (overlayRowIndex == 2) {
     pickerItems.clear();
     for (const char* label : RATING_LABELS) pickerItems.emplace_back(label);
-    pickerSelectedIndex = ratingPickerIndex(pendingState.rating);
+    pickerSelectedIndex = 0;
     screenState = ScreenState::RatingPicker;
-  } else if (overlayRowIndex == 3 && pendingState.rating) {
-    pendingState.ratingMode = pendingState.ratingMode == Ao3RatingFilterMode::Only
-                                  ? Ao3RatingFilterMode::Exclude
-                                  : Ao3RatingFilterMode::Only;
-  } else if (overlayRowIndex == 4) {
+  } else if (overlayRowIndex == 3) {
     pendingState.sortMode = nextSortMode(pendingState.sortMode, 1);
-  } else if (overlayRowIndex == 5) {
+  } else if (overlayRowIndex == 4) {
     pendingState.ascending = !pendingState.ascending;
-  } else if (overlayRowIndex == 6) {
+  } else if (overlayRowIndex == 5) {
     applyPendingFilter();
     return;
   }
@@ -788,24 +792,22 @@ void Ao3LibraryActivity::loop() {
   if (screenState == ScreenState::FilterPanel) {
     buttonNavigator.onNextRelease([this] {
       do {
-        overlayRowIndex = (overlayRowIndex + 1) % 7;
-      } while ((overlayRowIndex == 1 && !pendingState.fandom[0]) ||
-               (overlayRowIndex == 3 && !pendingState.rating));
+        overlayRowIndex = (overlayRowIndex + 1) % 6;
+      } while (overlayRowIndex == 1 && !pendingState.fandom[0]);
       requestUpdate(true);
     });
     buttonNavigator.onPreviousRelease([this] {
       do {
-        overlayRowIndex = (overlayRowIndex + 6) % 7;
-      } while ((overlayRowIndex == 1 && !pendingState.fandom[0]) ||
-               (overlayRowIndex == 3 && !pendingState.rating));
+        overlayRowIndex = (overlayRowIndex + 5) % 6;
+      } while (overlayRowIndex == 1 && !pendingState.fandom[0]);
       requestUpdate(true);
     });
     buttonNavigator.onNextContinuous([this] {
-      overlayRowIndex = 6;
+      overlayRowIndex = 5;
       requestUpdate(true);
     });
     buttonNavigator.onPreviousContinuous([this] {
-      overlayRowIndex = 6;
+      overlayRowIndex = 5;
       requestUpdate(true);
     });
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) activateFilterRow();
@@ -833,6 +835,15 @@ void Ao3LibraryActivity::loop() {
       });
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !pickerItems.empty()) {
+      if (screenState == ScreenState::RatingPicker) {
+        if (pickerSelectedIndex == 0) {
+          pendingState.ratingMask = 0;
+        } else {
+          pendingState.ratingMask ^= ao3RatingBit(RATING_VALUES[pickerSelectedIndex]);
+        }
+        requestUpdate(true);
+        return;
+      }
       if (screenState == ScreenState::FandomPicker) {
         pendingState.fandom[0] = '\0';
         pendingState.relationship[0] = '\0';
@@ -849,9 +860,6 @@ void Ao3LibraryActivity::loop() {
           strncpy(pendingState.relationship, pickerItems[pickerSelectedIndex].c_str(),
                   sizeof(pendingState.relationship) - 1);
         }
-      } else {
-        pendingState.rating = RATING_VALUES[std::min(pickerSelectedIndex, sizeof(RATING_VALUES) - 1)];
-        if (!pendingState.rating) pendingState.ratingMode = Ao3RatingFilterMode::Only;
       }
       screenState = ScreenState::FilterPanel;
       requestUpdate(true);
@@ -964,20 +972,20 @@ void Ao3LibraryActivity::renderFilterOverlay() {
   std::string relationship = pendingState.relationshipNoneOnly
                                  ? "None"
                                  : (pendingState.relationship[0] ? pendingState.relationship : "Any");
-  const char* values[7] = {
-      fandom.c_str(), relationship.c_str(), ratingLabel(pendingState.rating),
-      pendingState.ratingMode == Ao3RatingFilterMode::Only ? "Only selected" : "Exclude selected",
-      sortLabel(pendingState.sortMode), pendingState.ascending ? "Ascending" : "Descending", "Apply",
+  const std::string ratings = ratingMaskLabel(pendingState.ratingMask);
+  const char* values[6] = {
+      fandom.c_str(), relationship.c_str(), ratings.c_str(), sortLabel(pendingState.sortMode),
+      pendingState.ascending ? "Ascending" : "Descending", "Apply",
   };
-  const char* labels[7] = {"Fandom", "Relationship", "Content rating", "Rating rule", "Sort by", "Order", ""};
+  const char* labels[6] = {"Fandom", "Relationship", "Content ratings", "Sort by", "Order", ""};
   const int rowHeight = 48;
   const int buttonHeight = 38;
-  const int contentHeight = rowHeight * 6 + buttonHeight + 16;
+  const int contentHeight = rowHeight * 5 + buttonHeight + 16;
   const int firstY = startY + std::max(8, (overlayHeight - contentHeight) / 2);
-  for (int row = 0; row < 7; ++row) {
+  for (int row = 0; row < 6; ++row) {
     const int rowY = firstY + row * rowHeight;
-    const bool disabled = (row == 1 && !pendingState.fandom[0]) || (row == 3 && !pendingState.rating);
-    if (row == 6) {
+    const bool disabled = row == 1 && !pendingState.fandom[0];
+    if (row == 5) {
       const int width = 170;
       const int x = (screenWidth - width) / 2;
       renderer.fillRoundedRect(x, rowY - 5, width, buttonHeight, 6, Black);
@@ -1006,7 +1014,7 @@ void Ao3LibraryActivity::renderPicker() {
   const char* title = screenState == ScreenState::FandomPicker
                           ? "Choose Fandom"
                           : (screenState == ScreenState::RelationshipPicker ? "Choose Relationship"
-                                                                            : "Choose Content Rating");
+                                                                            : "Content Ratings");
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, title, false);
   } else {
@@ -1019,7 +1027,13 @@ void Ao3LibraryActivity::renderPicker() {
                             metrics.verticalSpacing;
   GUI.drawList(renderer, Rect{0, contentTop, renderer.getScreenWidth(), contentHeight}, total,
                static_cast<int>(pickerSelectedIndex),
-               [this](const int index) { return pickerItems[static_cast<size_t>(index)]; });
+               [this](const int index) {
+                 const size_t item = static_cast<size_t>(index);
+                 if (screenState != ScreenState::RatingPicker) return pickerItems[item];
+                 const bool checked = item == 0 ? pendingState.ratingMask == 0
+                                                : (pendingState.ratingMask & ao3RatingBit(RATING_VALUES[item])) != 0;
+                 return std::string(checked ? "[x] " : "[ ] ") + pickerItems[item];
+               });
   if (total > 0) {
     char count[24];
     snprintf(count, sizeof(count), "%u / %u", static_cast<unsigned>(pickerSelectedIndex + 1),
@@ -1028,7 +1042,9 @@ void Ao3LibraryActivity::renderPicker() {
                                          renderer.getTextWidth(SMALL_FONT_ID, count),
                       header.y + 7, count);
   }
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels = screenState == ScreenState::RatingPicker
+                          ? mappedInput.mapLabels("Done", "Toggle", tr(STR_DIR_UP), tr(STR_DIR_DOWN))
+                          : mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
