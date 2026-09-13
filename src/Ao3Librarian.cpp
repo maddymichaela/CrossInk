@@ -9,6 +9,7 @@
 #include <functional>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <strings.h>
 
@@ -93,6 +94,19 @@ bool readAo3LibraryInfoAtPath(const std::string& infoPath, Ao3LibraryMetadata& m
   const bool ok = file.read(reinterpret_cast<uint8_t*>(&meta), sizeof(meta)) == sizeof(meta);
   file.close();
   return ok && meta.isValid() && meta.version == 8;
+}
+
+bool cacheHashFromInfoPath(const std::string& infoPath, uint32_t& cacheHash) {
+  constexpr char marker[] = "/epub_";
+  const size_t markerPos = infoPath.rfind(marker);
+  if (markerPos == std::string::npos) return false;
+
+  const char* number = infoPath.c_str() + markerPos + sizeof(marker) - 1;
+  char* end = nullptr;
+  const unsigned long long fullHash = strtoull(number, &end, 10);
+  if (end == number || !end || *end != '/') return false;
+  cacheHash = static_cast<uint32_t>(fullHash);
+  return true;
 }
 
 template <typename Callback>
@@ -861,6 +875,21 @@ void Ao3Librarian::findLibraryInfoByCacheHashes(const uint32_t* cacheHashes, con
 
   bool done = false;
   forEachAo3InfoSidecar([&](const std::string& infoPath) {
+    // Cache directory names contain the full path hash. Reject unrelated
+    // directories before opening their sidecars; AO3 library paging and
+    // end-of-series lookup otherwise read every cached EPUB on the card.
+    uint32_t directoryHash = 0;
+    if (cacheHashFromInfoPath(infoPath, directoryHash)) {
+      bool requested = false;
+      for (size_t i = 0; i < count; ++i) {
+        if (!found[i] && cacheHashes[i] == directoryHash) {
+          requested = true;
+          break;
+        }
+      }
+      if (!requested) return;
+    }
+
     Ao3LibraryMetadata candidate;
     if (!readAo3LibraryInfoAtPath(infoPath, candidate) || candidate.filepath[0] == '\0') return;
     const uint32_t candidateHash = ao3PathHash(candidate.filepath);
@@ -928,27 +957,60 @@ std::vector<std::string> Ao3Librarian::findNextSeriesBooks(const std::string& ep
 
   struct Candidate {
     uint16_t part;
-    std::string path;
+    uint32_t cacheHash;
   };
   std::vector<Candidate> candidates;
-  forEachLibraryInfo([&](const Ao3LibraryMetadata& metadata) {
-    if (metadata.filepath[0] == '\0' || metadata.seriesPart <= current.seriesPart ||
-        strcasecmp(metadata.seriesName, current.seriesName) != 0 || !Storage.exists(metadata.filepath)) {
-      return;
-    }
-    candidates.push_back({metadata.seriesPart, metadata.filepath});
-  });
+  candidates.reserve(maxCount + 1);
 
-  std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
-    if (a.part != b.part) return a.part < b.part;
-    return strcasecmp(a.path.c_str(), b.path.c_str()) < 0;
-  });
-  result.reserve(std::min(maxCount, candidates.size()));
-  for (const Candidate& candidate : candidates) {
-    if (result.size() >= maxCount) break;
-    if (std::find(result.begin(), result.end(), candidate.path) == result.end()) {
-      result.push_back(candidate.path);
+  HalFile index;
+  uint16_t recordCount = 0;
+  if (!Storage.openFileForRead("AO3L", AO3_INDEX_PATH, index) || !readIndexHeader(index, recordCount)) {
+    if (index) index.close();
+    return result;
+  }
+
+  CompactIndexRecord record;
+  for (uint16_t i = 0; i < recordCount; ++i) {
+    index.seek(offsetOf(i));
+    if (index.read(reinterpret_cast<uint8_t*>(&record), sizeof(record)) != sizeof(record)) break;
+    // Compact records intentionally truncate series names. Match their stored
+    // prefix here, then verify the complete name after resolving the sidecar.
+    if ((record.flags & 1) || record.seriesPart <= current.seriesPart ||
+        strncasecmp(record.seriesName, current.seriesName, sizeof(record.seriesName) - 1) != 0) {
+      continue;
     }
+    const bool duplicate = std::any_of(candidates.begin(), candidates.end(), [&](const Candidate& candidate) {
+      return candidate.cacheHash == record.cacheHash;
+    });
+    if (duplicate) continue;
+
+    candidates.push_back({record.seriesPart, record.cacheHash});
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+      if (a.part != b.part) return a.part < b.part;
+      return a.cacheHash < b.cacheHash;
+    });
+    if (candidates.size() > maxCount) candidates.pop_back();
+  }
+  index.close();
+
+  if (candidates.empty()) return result;
+
+  std::vector<uint32_t> hashes;
+  hashes.reserve(candidates.size());
+  for (const Candidate& candidate : candidates) hashes.push_back(candidate.cacheHash);
+  std::vector<Ao3LibraryMetadata> metadata(candidates.size());
+  std::unique_ptr<bool[]> found(new bool[candidates.size()]);
+  findLibraryInfoByCacheHashes(hashes.data(), hashes.size(), metadata.data(), found.get());
+
+  result.reserve(candidates.size());
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    if (!found[i] || metadata[i].filepath[0] == '\0' || !Storage.exists(metadata[i].filepath) ||
+        metadata[i].seriesPart <= current.seriesPart ||
+        strcasecmp(metadata[i].seriesName, current.seriesName) != 0) {
+      continue;
+    }
+    const std::string path = metadata[i].filepath;
+    if (std::find(result.begin(), result.end(), path) == result.end()) result.push_back(path);
   }
   return result;
 }

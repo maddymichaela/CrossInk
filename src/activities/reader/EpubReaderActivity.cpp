@@ -2690,6 +2690,16 @@ void EpubReaderActivity::loop() {
     std::string openPath;
     switch (endOfBookOptions.handleMenuInput(mappedInput, &openPath)) {
       case EndOfBookOptions::Action::OpenBook:
+        // Replacing the reader can include progress flushing, optional /Read
+        // migration, and first-page preparation. Paint feedback first so the
+        // e-ink display does not look frozen during those SD operations.
+        {
+          RenderLock lock(*this);
+          section.reset();
+          releaseGrayscaleStripScratch();
+          GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+          renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+        }
         activityManager.goToReader(openPath);
         return;
       case EndOfBookOptions::Action::GoHome:
